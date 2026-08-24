@@ -1,7 +1,7 @@
 # Convert the multiband VRT to .tif 
 
 # modules
-module load gdal/3.0.4
+# module load gdal/3.0.4
 
 #---------------------------------
 # Specify settings
@@ -21,7 +21,7 @@ if [ "$source_path" = "default" ]; then
  root_path=$(echo ${root_path%%#*})
 
  # domain name
- domain_line==$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
+ domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
  domain_name=$(echo ${domain_line##*|}) 
  domain_name=$(echo ${domain_name%%#*})
  
@@ -44,7 +44,7 @@ if [ "$dest_path" = "default" ]; then
  root_path=$(echo ${root_path%%#*})
 
  # domain name
- domain_line==$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
+ domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
  domain_name=$(echo ${domain_line##*|}) 
  domain_name=$(echo ${domain_name%%#*})
  
@@ -56,13 +56,22 @@ fi
 mkdir -p $dest_path
 
 # --- Filenames
-vrt_file=$(ls $source_path/*.vrt)
+vrt_file=$(ls "$source_path"/*.vrt)
+
+if [ -z "$vrt_file" ]; then
+    echo "No VRT file found in: $source_path"
+    exit 1
+fi
+
 tif_file="${dest_path}/$(basename "$vrt_file" .vrt).tif"
 
-#---------------------------------
-# Create .tif file
-#---------------------------------
-gdal_translate -co "COMPRESS=DEFLATE" $vrt_file $tif_file
+echo "Input VRT : $vrt_file"
+echo "Output TIF: $tif_file"
+
+gdal_translate \
+    -co "COMPRESS=DEFLATE" \
+    "$vrt_file" \
+    "$tif_file"
 
 
 #---------------------------------

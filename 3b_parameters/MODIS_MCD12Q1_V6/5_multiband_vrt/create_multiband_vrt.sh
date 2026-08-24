@@ -1,7 +1,7 @@
 # Create a new multiband VRT with each data year being one band
 
 # load the module
-module load gdal/3.0.4
+# module load gdal/3.0.4
 
 #---------------------------------
 # Specify settings
@@ -21,7 +21,7 @@ if [ "$source_path" = "default" ]; then
  root_path=$(echo ${root_path%%#*})
 
  # domain name
- domain_line==$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
+ domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
  domain_name=$(echo ${domain_line##*|}) 
  domain_name=$(echo ${domain_name%%#*})
  
@@ -44,7 +44,7 @@ if [ "$dest_path" = "default" ]; then
  root_path=$(echo ${root_path%%#*})
 
  # domain name
- domain_line==$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
+ domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
  domain_name=$(echo ${domain_line##*|}) 
  domain_name=$(echo ${domain_name%%#*})
  
@@ -56,21 +56,34 @@ fi
 mkdir -p $dest_path
 
 # --- Specify output filename
-FILENAME="domain_MCD12Q1_2001_2018.vrt"
+FILENAME="domain_MCD12Q1_2022.vrt"
 
 
 #---------------------------------
 # Create multiband VRT
 #---------------------------------
 
-# Find VRT filenames and store in temporary file
-ls ${source_path}/*.vrt > filelist.txt
+FILELIST="${dest_path}/filelist.txt"
 
-# Create the multiband VRT
-gdalbuildvrt -separate -input_file_list filelist.txt ${dest_path}/${FILENAME} -resolution highest
+ls "$source_path"/domain_MCD12Q1_*.vrt > "$FILELIST"
 
-# Remove the temporary file
-rm -f filelist.txt
+if [ ! -s "$FILELIST" ]; then
+    echo "No cropped MODIS VRT files found in: $source_path"
+    exit 1
+fi
+
+echo "MODIS VRT files found:"
+cat "$FILELIST"
+
+gdalbuildvrt \
+    -separate \
+    -input_file_list "$FILELIST" \
+    "$dest_path/$FILENAME" \
+    -resolution highest
+
+rm -f "$FILELIST"
+
+echo "Created: $dest_path/$FILENAME"
 
 
 #---------------------------------

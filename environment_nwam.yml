@@ -1,0 +1,68 @@
+name: nwam
+
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.10
+
+  # ==========================================================
+  # Scientific Python
+  # ==========================================================
+  - numpy
+  - pandas
+  - scipy
+
+  # ==========================================================
+  # NetCDF / HDF
+  # ==========================================================
+  - xarray
+  - netcdf4
+  - netcdf-fortran
+  - h5netcdf
+  - cftime
+  - hdf5
+
+  # ==========================================================
+  # Geospatial
+  # ==========================================================
+  - geopandas
+  - shapely
+  - pyproj
+  - rasterio
+  - rasterstats
+  - fiona
+  - pyshp
+  - rtree
+  - gdal
+  - libgdal-hdf4
+  - hdf4
+
+  # ==========================================================
+  # SUMMA / mizuRoute compilation
+  # ==========================================================
+  - cmake
+  - make
+  - gcc
+  - gfortran
+  - openblas
+  - lapack
+
+  # MPI required by mizuRoute v3.1.1
+  - openmpi
+  - mpi4py
+
+  # ==========================================================
+  # Utilities
+  # ==========================================================
+  - matplotlib
+  - tqdm
+  - requests
+  - gitpython
+  - pip
+
+  # ==========================================================
+  # CWARHM / EASYMORE
+  # ==========================================================
+  - pip:
+      - easymore

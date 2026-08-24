@@ -1,103 +1,242 @@
-# Copy base settings
-# Copies the base settings into the SUMMA settings folder.
+# Copy SUMMA base settings into the active domain settings folder.
+#
+# This script:
+#   - locates CWARHM from its own file location
+#   - reads control_active.txt
+#   - determines the active domain from the control file
+#   - copies the SUMMA base-setting files into domain_<name>/settings/SUMMA
+#   - creates a workflow log
+#
+# Reproducible for any domain selected through control_active.txt.
 
-# modules
-import os
 from pathlib import Path
-from shutil import copyfile
+from shutil import copy2
 from datetime import datetime
 
 
-# --- Control file handling
-# Easy access to control file folder
-controlFolder = Path('../../../0_control_files')
+# ============================================================
+# PROJECT PATHS
+# ============================================================
 
-# Store the name of the 'active' file in a variable
-controlFile = 'control_active.txt'
+SCRIPT_DIR = Path(__file__).resolve().parent
 
-# Function to extract a given setting from the control file
-def read_from_control( file, setting ):
-    
-    # Open 'control_active.txt' and ...
+# Script location:
+# CWARHM/5_model_input/SUMMA/1a_copy_base_settings/
+SUMMA_WORKFLOW_DIR = SCRIPT_DIR.parent
+CWARHM_ROOT = SCRIPT_DIR.parents[2]
+
+CONTROL_FILE = (
+    CWARHM_ROOT
+    / "0_control_files"
+    / "control_active.txt"
+)
+
+BASE_SETTINGS_PATH = (
+    SUMMA_WORKFLOW_DIR
+    / "0_base_settings"
+)
+
+
+# ============================================================
+# VALIDATE WORKFLOW INPUTS
+# ============================================================
+
+if not CONTROL_FILE.exists():
+    raise FileNotFoundError(
+        f"Control file not found:\n{CONTROL_FILE}"
+    )
+
+if not BASE_SETTINGS_PATH.exists():
+    raise FileNotFoundError(
+        f"SUMMA base-settings folder not found:\n"
+        f"{BASE_SETTINGS_PATH}"
+    )
+
+
+# ============================================================
+# CONTROL FUNCTIONS
+# ============================================================
+
+def read_from_control(file, setting):
+
     with open(file) as contents:
+
         for line in contents:
-            
-            # ... find the line with the requested setting
-            if setting in line and not line.startswith('#'):
-                break
-    
-    # Extract the setting's value
-    substring = line.split('|',1)[1]      # Remove the setting's name (split into 2 based on '|', keep only 2nd part)
-    substring = substring.split('#',1)[0] # Remove comments, does nothing if no '#' is found
-    substring = substring.strip()         # Remove leading and trailing whitespace, tabs, newlines
-       
-    # Return this value    
-    return substring
-    
-# Function to specify a default path
+
+            stripped = line.strip()
+
+            if (
+                stripped
+                and not stripped.startswith("#")
+                and "|" in stripped
+            ):
+
+                left, right = stripped.split("|", 1)
+
+                if left.strip() != setting:
+                    continue
+
+                return (
+                    right
+                    .split("#", 1)[0]
+                    .strip()
+                )
+
+    raise ValueError(
+        f"Setting not found in control file: {setting}"
+    )
+
+
 def make_default_path(suffix):
-    
-    # Get the root path
-    rootPath = Path( read_from_control(controlFolder/controlFile,'root_path') )
-    
-    # Get the domain folder
-    domainName = read_from_control(controlFolder/controlFile,'domain_name')
-    domainFolder = 'domain_' + domainName
-    
-    # Specify the forcing path
-    defaultPath = rootPath / domainFolder / suffix
-    
-    return defaultPath
-    
-    
-# --- Define where the base settings are
-# Base settings
-base_settings_path = Path('../0_base_settings')
+
+    root_path = Path(
+        read_from_control(
+            CONTROL_FILE,
+            "root_path"
+        )
+    )
+
+    domain_name = read_from_control(
+        CONTROL_FILE,
+        "domain_name"
+    )
+
+    return (
+        root_path
+        / f"domain_{domain_name}"
+        / suffix
+    )
 
 
-# --- Find where the settings need to go
-# Settings path 
-settings_path = read_from_control(controlFolder/controlFile,'settings_summa_path')
+# ============================================================
+# OUTPUT SETTINGS PATH
+# ============================================================
 
-# Specify default path if needed
-if settings_path == 'default':
-    settings_path = make_default_path('settings/SUMMA') # outputs a Path()
+settings_path = read_from_control(
+    CONTROL_FILE,
+    "settings_summa_path"
+)
+
+if settings_path == "default":
+
+    settings_path = make_default_path(
+        "settings/SUMMA"
+    )
+
 else:
-    settings_path = Path(settings_path) # make sure a user-specified path is a Path()
 
-# Make the folder if it doesn't exist
-settings_path.mkdir(parents=True, exist_ok=True)
-    
-    
-# --- Copy the settings
-# Loop over all files and copy
-for file in os.listdir(base_settings_path):
-    copyfile(base_settings_path/file, settings_path/file);
-    
-    
-# --- Code provenance
-# Generates a basic log file in the domain folder and copies the control file and itself there.
+    settings_path = Path(
+        settings_path
+    )
 
-# Set the log path and file name
-logPath = settings_path
-log_suffix = '_copy_base_settings.txt'
+settings_path.mkdir(
+    parents=True,
+    exist_ok=True
+)
 
-# Create a log folder
-logFolder = '_workflow_log'
-Path( logPath / logFolder ).mkdir(parents=True, exist_ok=True)
 
-# Copy this script
-thisFile = '1_copy_base_settings.py'
-copyfile(thisFile, logPath / logFolder / thisFile);
+# ============================================================
+# COPY BASE SETTINGS
+# ============================================================
 
-# Get current date and time
+base_files = [
+    file
+    for file in BASE_SETTINGS_PATH.iterdir()
+    if file.is_file()
+]
+
+if not base_files:
+    raise RuntimeError(
+        f"No base-setting files found in:\n"
+        f"{BASE_SETTINGS_PATH}"
+    )
+
+
+print()
+print("============================================================")
+print("COPY SUMMA BASE SETTINGS")
+print("============================================================")
+print(f"Control file : {CONTROL_FILE}")
+print(f"Source       : {BASE_SETTINGS_PATH}")
+print(f"Destination  : {settings_path}")
+print()
+
+
+for source_file in sorted(base_files):
+
+    destination_file = (
+        settings_path
+        / source_file.name
+    )
+
+    copy2(
+        source_file,
+        destination_file
+    )
+
+    print(
+        f"Copied: {source_file.name}"
+    )
+
+
+# ============================================================
+# LOGGING
+# ============================================================
+
+log_folder = (
+    settings_path
+    / "_workflow_log"
+)
+
+log_folder.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+
+this_file = Path(__file__).name
+
+copy2(
+    Path(__file__).resolve(),
+    log_folder / this_file
+)
+
+
 now = datetime.now()
 
-# Create a log file 
-logFile = now.strftime('%Y%m%d') + log_suffix
-with open( logPath / logFolder / logFile, 'w') as file:
-    
-    lines = ['Log generated by ' + thisFile + ' on ' + now.strftime('%Y/%m/%d %H:%M:%S') + '\n',
-             'Copied the SUMMA base settings.']
-    for txt in lines:
-        file.write(txt) 
+log_file = (
+    log_folder
+    / f"{now:%Y%m%d}_copy_base_settings.txt"
+)
+
+
+with open(
+    log_file,
+    "w"
+) as file:
+
+    file.write(
+        f"Log generated by {this_file} "
+        f"on {now:%Y/%m/%d %H:%M:%S}\n"
+    )
+
+    file.write(
+        f"Source base settings: "
+        f"{BASE_SETTINGS_PATH}\n"
+    )
+
+    file.write(
+        f"Destination: "
+        f"{settings_path}\n"
+    )
+
+    file.write(
+        f"Files copied: "
+        f"{len(base_files)}\n"
+    )
+
+
+print()
+print("SUMMA base settings copied successfully.")
+print(f"Files copied: {len(base_files)}")
+print(f"Destination: {settings_path}")

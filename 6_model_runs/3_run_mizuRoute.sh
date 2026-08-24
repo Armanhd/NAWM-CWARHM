@@ -1,29 +1,44 @@
 #!/bin/bash
 
+#SBATCH --job-name=mizuRoute
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --mem=8G
+#SBATCH --mem=4G
 #SBATCH --time=2-00:00:00
 #SBATCH --partition=cpu2025,cpu2023,cpu2022
-#SBATCH --output=SUMMA_%A_%a.out
-#SBATCH --error=SUMMA_%A_%a.err
+#SBATCH --output=mizuRoute_%j.out
+#SBATCH --error=mizuRoute_%j.err
 
 set -euo pipefail
 
 
 # ============================================================
-# PATHS
+# SAFETY
+# ============================================================
+
+# Current NWAM mizuRoute build uses serial NetCDF through PIO.
+# Multi-rank runs were demonstrated to corrupt history-file
+# record indices. Do not enable >1 task until mizuRoute is
+# rebuilt and verified with parallel-safe PIO.
+if [ "${SLURM_NTASKS:-1}" -ne 1 ]; then
+
+    echo "ERROR:"
+    echo "Current NWAM mizuRoute build is validated only with 1 MPI task."
+    echo "Multi-rank PIO output corrupted NetCDF timestamps during testing."
+
+    exit 1
+fi
+
+
+# ============================================================
+# PATHS / CONTROL
 # ============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CWARHM="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONTROL="${CWARHM}/0_control_files/control_active.txt"
 
-
-# ============================================================
-# CONTROL READER
-# ============================================================
 
 read_control() {
 
@@ -51,75 +66,43 @@ read_control() {
 }
 
 
-# ============================================================
-# SETTINGS
-# ============================================================
-
 ROOT_PATH="$(read_control root_path)"
 DOMAIN_NAME="$(read_control domain_name)"
 EXPERIMENT_ID="$(read_control experiment_id)"
 
-SUMMA_PATH="$(read_control install_path_summa)"
-SUMMA_EXE="$(read_control exe_name_summa)"
+MIZU_PATH="$(read_control install_path_mizuroute)"
+MIZU_EXE="$(read_control exe_name_mizuroute)"
 
-SETTINGS_PATH="$(read_control settings_summa_path)"
-FILEMANAGER="$(read_control settings_summa_filemanager)"
+SETTINGS_PATH="$(read_control settings_mizu_path)"
+CONTROL_NAME="$(read_control settings_mizu_control_file)"
 
-OUTPUT_PATH="$(read_control experiment_output_summa)"
-LOG_PATH="$(read_control experiment_log_summa)"
+OUTPUT_PATH="$(read_control experiment_output_mizuRoute)"
+LOG_PATH="$(read_control experiment_log_mizuroute)"
 
 DO_BACKUP="$(read_control experiment_backup_settings)"
 
 
-if [ "$SUMMA_PATH" = "default" ]; then
-    SUMMA_PATH="${ROOT_PATH}/installs/summa"
+if [ "$MIZU_PATH" = "default" ]; then
+    MIZU_PATH="${ROOT_PATH}/installs/mizuRoute"
 fi
 
 if [ "$SETTINGS_PATH" = "default" ]; then
-    SETTINGS_PATH="${ROOT_PATH}/domain_${DOMAIN_NAME}/settings/SUMMA"
+    SETTINGS_PATH="${ROOT_PATH}/domain_${DOMAIN_NAME}/settings/mizuRoute"
 fi
 
 if [ "$OUTPUT_PATH" = "default" ]; then
-    OUTPUT_PATH="${ROOT_PATH}/domain_${DOMAIN_NAME}/simulations/${EXPERIMENT_ID}/SUMMA"
+    OUTPUT_PATH="${ROOT_PATH}/domain_${DOMAIN_NAME}/simulations/${EXPERIMENT_ID}/mizuRoute"
 fi
 
 if [ "$LOG_PATH" = "default" ]; then
-    LOG_PATH="${OUTPUT_PATH}/SUMMA_logs"
+    LOG_PATH="${OUTPUT_PATH}/mizuRoute_logs"
 fi
 
 
-SUMMA_EXEC="${SUMMA_PATH}/bin/${SUMMA_EXE}"
-FILEMANAGER_PATH="${SETTINGS_PATH}/${FILEMANAGER}"
+MIZU_EXEC="${MIZU_PATH}/route/bin/${MIZU_EXE}"
+CONTROL_FILE="${SETTINGS_PATH}/${CONTROL_NAME}"
 
-
-# ============================================================
-# ARRAY PARAMETERS
-# ============================================================
-
-if [ -z "${SLURM_ARRAY_TASK_ID:-}" ]; then
-    echo "ERROR: this script must be run as a Slurm array job."
-    exit 1
-fi
-
-GRUS_PER_TASK="${GRUS_PER_TASK:-10}"
-TOTAL_GRUS="${TOTAL_GRUS:?TOTAL_GRUS was not supplied by submitter}"
-
-GRU_START=$((SLURM_ARRAY_TASK_ID * GRUS_PER_TASK + 1))
-GRU_COUNT="$GRUS_PER_TASK"
-
-GRU_END=$((GRU_START + GRU_COUNT - 1))
-
-if [ "$GRU_END" -gt "$TOTAL_GRUS" ]; then
-    GRU_COUNT=$((TOTAL_GRUS - GRU_START + 1))
-fi
-
-if [ "$GRU_COUNT" -le 0 ]; then
-    echo "ERROR: calculated GRU_COUNT <= 0"
-    exit 1
-fi
-
-
-LOG_FILE="${LOG_PATH}/summa_G${GRU_START}_${GRU_COUNT}_${SLURM_ARRAY_TASK_ID}.txt"
+LOG_FILE="${LOG_PATH}/mizuRoute_log.txt"
 
 
 # ============================================================
@@ -137,15 +120,15 @@ export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
 # CHECKS
 # ============================================================
 
-if [ ! -x "$SUMMA_EXEC" ]; then
-    echo "ERROR: SUMMA executable not found:"
-    echo "$SUMMA_EXEC"
+if [ ! -x "$MIZU_EXEC" ]; then
+    echo "ERROR: mizuRoute executable not found:"
+    echo "$MIZU_EXEC"
     exit 1
 fi
 
-if [ ! -f "$FILEMANAGER_PATH" ]; then
-    echo "ERROR: SUMMA fileManager not found:"
-    echo "$FILEMANAGER_PATH"
+if [ ! -f "$CONTROL_FILE" ]; then
+    echo "ERROR: mizuRoute control file not found:"
+    echo "$CONTROL_FILE"
     exit 1
 fi
 
@@ -155,10 +138,10 @@ mkdir -p "$LOG_PATH"
 
 
 # ============================================================
-# BACKUP SETTINGS
+# BACKUP
 # ============================================================
 
-if [ "$DO_BACKUP" = "yes" ] && [ "$SLURM_ARRAY_TASK_ID" = "0" ]; then
+if [ "$DO_BACKUP" = "yes" ]; then
 
     BACKUP_PATH="${OUTPUT_PATH}/run_settings"
 
@@ -175,16 +158,15 @@ fi
 # ============================================================
 
 echo "============================================================"
-echo "RUN SUMMA GRU SUBSET"
+echo "RUN MIZUROUTE"
 echo "============================================================"
 
 echo "Domain      : $DOMAIN_NAME"
 echo "Experiment  : $EXPERIMENT_ID"
-echo "Array task  : $SLURM_ARRAY_TASK_ID"
-echo "GRU start   : $GRU_START"
-echo "GRU count   : $GRU_COUNT"
-echo "Total GRUs  : $TOTAL_GRUS"
-echo "Executable  : $SUMMA_EXEC"
+echo "MPI tasks   : 1"
+echo "Executable  : $MIZU_EXEC"
+echo "Control     : $CONTROL_FILE"
+echo "Output      : $OUTPUT_PATH"
 echo "Log         : $LOG_FILE"
 echo "Start       : $(date)"
 
@@ -197,9 +179,7 @@ echo "============================================================"
 
 set +e
 
-"$SUMMA_EXEC" \
-    -g "$GRU_START" "$GRU_COUNT" \
-    -m "$FILEMANAGER_PATH" \
+"$MIZU_EXEC" "$CONTROL_FILE" \
     > "$LOG_FILE" 2>&1
 
 STATUS=$?
@@ -208,12 +188,12 @@ set -e
 
 
 # ============================================================
-# VERIFY SUMMA'S OWN SUCCESS MESSAGE
+# VERIFY
 # ============================================================
 
 MODEL_SUCCESS="no"
 
-if grep -qi "finished simulation successfully" "$LOG_FILE"; then
+if grep -q "SUCCESSFUL EXECUTION" "$LOG_FILE"; then
     MODEL_SUCCESS="yes"
 fi
 
@@ -221,16 +201,17 @@ fi
 if [ "$STATUS" -ne 0 ] || [ "$MODEL_SUCCESS" != "yes" ]; then
 
     echo
-    echo "SUMMA subset FAILED."
+    echo "MIZUROUTE FAILED"
     echo "Return code: $STATUS"
     echo
 
-    tail -40 "$LOG_FILE" || true
+    tail -60 "$LOG_FILE" || true
 
     exit 1
 fi
 
 
 echo
-echo "SUMMA subset completed successfully."
+echo "MIZUROUTE COMPLETED SUCCESSFULLY"
+echo "Executable return code: $STATUS"
 echo "End: $(date)"

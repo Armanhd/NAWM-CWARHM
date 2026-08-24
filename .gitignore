@@ -1,20 +1,34 @@
-# Logs and databases #
-######################
-slurm-*.out
-output*.out
-ERA5_createForcing_CONUS*.sh
-core.*
+# ============================================================
+# NWAM local / temporary files
+# ============================================================
 
-# notebook stuff
-.ipynb_checkpoints
+# Python-generated files
+__pycache__/
+*.pyc
 
-# rtd
-rtd/build
+# ARC / SLURM logs
+*.out
+*.err
+slurm_logs/
 
-rtd/source/*.md
+# Temporary processing
+temp/
+*/temp/
 
-# Ignore macOS system files
-.DS_Store
+# Local/test control files
+0_control_files/control_active.txt
+0_control_files/control_CAN_01AD003_test.txt
 
-# Ignore environment configuration files
-.env
+# Local forcing data / links
+3a_forcing/0_existing_forcing/
+
+# Generated workflow outputs
+NWAM_workflow_source_dump.txt
+6_model_runs/timing_stats
+
+# Environment update logs
+nwam_env_update_*.out
+nwam_env_update_*.err
+
+# Local backup scripts
+*_original.sh

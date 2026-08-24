@@ -1,111 +1,265 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-'''
-SUMMA workflow: make folder structure
-Makes the initial folder structure for a given control file. All other files in the workflow will look for the file `control_active.txt` during their execution. This script:
+"""
+CWARHM workflow: make folder structure
 
-1. Copies the specified control file into `control_active.txt`;
-2. Prepares a folder structure using the settings in `control_active.txt`.
-3. Creates a copy of itself to be stored in the new folder structure.
+This script:
 
-The destination folders are referred to as "domain folders".
-'''
+1. Reads a domain-specific control file supplied as a command-line argument;
+2. Copies it to 0_control_files/control_active.txt;
+3. Creates the domain folder structure;
+4. Stores copies of the control file and this script in the workflow log.
 
-# Specify the control file to use
-sourceFile  = 'control_Bow_at_Banff.txt'
+Usage:
 
-# --- Do not change below this line.
+python make_folder_structure.py \
+../0_control_files/control_DOMAIN.txt
+"""
 
-# Modules
-import os
+import sys
 from pathlib import Path
 from shutil import copyfile
 from datetime import datetime
 
-# --- Copy the control file into `control_active.txt`
-# Easy access to control file folder
-controlFolder = Path('../0_control_files')
 
-# Store the name of the 'active' file in a variable
-controlFile = 'control_active.txt'
+# ============================================================
+# INPUT CONTROL FILE
+# ============================================================
 
-# Copy
-copyfile( controlFolder/sourceFile, controlFolder/controlFile );
+if len(sys.argv) != 2:
+    raise SystemExit(
+        "Usage:\n"
+        "python make_folder_structure.py "
+        "../0_control_files/control_DOMAIN.txt"
+    )
 
-# --- Create the main domain folders
-# Function to extract a given setting from the control file
-def read_from_control( file, setting ):
-    
-    # Open 'control_active.txt' and ...
+
+source_control = Path(sys.argv[1]).resolve()
+
+if not source_control.exists():
+    raise FileNotFoundError(
+        f"Control file not found:\n{source_control}"
+    )
+
+
+# ============================================================
+# CONTROL-FILE LOCATIONS
+# ============================================================
+
+controlFolder = Path("../0_control_files").resolve()
+
+controlFile = "control_active.txt"
+
+active_control = controlFolder / controlFile
+
+
+# ============================================================
+# COPY DOMAIN CONTROL TO control_active.txt
+# ============================================================
+
+copyfile(
+    source_control,
+    active_control
+)
+
+print("Source control file:")
+print(source_control)
+
+print("\nActive control file:")
+print(active_control)
+
+
+# ============================================================
+# FUNCTION TO READ CONTROL SETTINGS
+# ============================================================
+
+def read_from_control(file, setting):
+
     with open(file) as contents:
+
         for line in contents:
-            
-            # ... find the line with the requested setting
-            if setting in line:
-                break
-    
-    # Extract the setting's value
-    substring = line.split('|',1)[1]      # Remove the setting's name (split into 2 based on '|', keep only 2nd part)
-    substring = substring.split('#',1)[0] # Remove comments, does nothing if no '#' is found
-    substring = substring.strip()         # Remove leading and trailing whitespace, tabs, newlines
-       
-    # Return this value    
-    return substring
-    
-# Find the path where the domain folders need to go
-# Immediately store as a 'Path' to avoid issues with '/' and '\' on different operating systems
-rootPath = Path( read_from_control(controlFolder/controlFile,'root_path') )
 
-# Find the domain name
-domainName = read_from_control(controlFolder/controlFile,'domain_name')
+            if (
+                line.startswith(setting)
+                and not line.startswith("#")
+            ):
 
-# Create the domain folder inside 'root'
-domainFolder = 'domain_' + domainName
-Path( rootPath / domainFolder ).mkdir(parents=True, exist_ok=True)
+                value = line.split("|", 1)[1]
+                value = value.split("#", 1)[0]
+
+                return value.strip()
+
+    raise ValueError(
+        f"Setting '{setting}' not found in:\n{file}"
+    )
 
 
-# --- Make the shapefile folders
-# Find the catchment shapefile folder in 'control_active'
-catchmentShapeFolder = read_from_control(controlFolder/controlFile,'catchment_shp_path')
-networkShapeFolder = read_from_control(controlFolder/controlFile,'river_network_shp_path')
-riverBasinFolder =  read_from_control(controlFolder/controlFile,'river_basin_shp_path')
+# ============================================================
+# DOMAIN SETTINGS
+# ============================================================
 
-# Specify the default paths if required
-if catchmentShapeFolder == 'default':
-    catchmentShapeFolder = 'shapefiles/catchment'
-if networkShapeFolder == 'default':
-    networkShapeFolder = 'shapefiles/river_network'
-if riverBasinFolder == 'default':
-    riverBasinFolder = 'shapefiles/river_basins'
+rootPath = Path(
+    read_from_control(
+        active_control,
+        "root_path"
+    )
+)
 
-# Try to make the shapefile folders; does nothing if the folder already exists
-Path( rootPath / domainFolder / catchmentShapeFolder ).mkdir(parents=True, exist_ok=True)
-Path( rootPath / domainFolder / networkShapeFolder ).mkdir(parents=True, exist_ok=True)
-Path( rootPath / domainFolder / riverBasinFolder ).mkdir(parents=True, exist_ok=True)
+domainName = read_from_control(
+    active_control,
+    "domain_name"
+)
+
+domainFolder = (
+    rootPath /
+    f"domain_{domainName}"
+)
+
+domainFolder.mkdir(
+    parents=True,
+    exist_ok=True
+)
 
 
-# --- Code provenance
-# Generates a basic log file in the domain folder and copies the control file and itself there.
-# Create a log folder
-logFolder = '_workflow_log'
-Path( rootPath / domainFolder / logFolder ).mkdir(parents=True, exist_ok=True)
+print("\nDomain:")
+print(domainName)
 
-# Copy the control file
-copyfile(controlFolder / sourceFile, rootPath / domainFolder / logFolder / sourceFile);
+print("\nDomain folder:")
+print(domainFolder)
 
-# Copy this script
-thisFile = 'make_folder_structure.py'
-copyfile(thisFile, rootPath / domainFolder / logFolder / thisFile);
 
-# Get current date and time
+# ============================================================
+# CREATE MAIN CWARHM DOMAIN FOLDERS
+# ============================================================
+
+folders = [
+
+    "forcing/0_geopotential",
+    "forcing/1_raw_data",
+    "forcing/2_merged_data",
+    "forcing/3_temp_easymore",
+    "forcing/3_basin_averaged_data",
+    "forcing/4_SUMMA_input",
+
+    "parameters/dem/1_MERIT_hydro_raw_data",
+    "parameters/dem/2_MERIT_hydro_unpacked_data",
+    "parameters/dem/3_vrt",
+    "parameters/dem/4_domain_vrt",
+    "parameters/dem/5_elevation",
+
+    "parameters/soilclass/1_soil_classes_global",
+    "parameters/soilclass/2_soil_classes_domain",
+
+    "parameters/landclass/1_MODIS_raw_data",
+    "parameters/landclass/2_vrt_native_crs",
+    "parameters/landclass/3_vrt_epsg_4326",
+    "parameters/landclass/4_domain_vrt_epsg_4326",
+    "parameters/landclass/5_multiband_domain_vrt_epsg_4326",
+    "parameters/landclass/6_tif_multiband",
+    "parameters/landclass/7_mode_land_class",
+
+    "settings/SUMMA",
+    "settings/mizuRoute",
+
+    "shapefiles/catchment",
+    "shapefiles/river_network",
+    "shapefiles/river_basins",
+
+    "shapefiles/catchment_intersection/with_dem",
+    "shapefiles/catchment_intersection/with_soilgrids",
+    "shapefiles/catchment_intersection/with_modis",
+    "shapefiles/catchment_intersection/with_forcing",
+    "shapefiles/catchment_intersection/with_routing",
+
+    "shapefiles/forcing",
+
+    "simulations",
+
+    "visualization",
+]
+
+
+for folder in folders:
+
+    (
+        domainFolder /
+        folder
+    ).mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+
+# ============================================================
+# WORKFLOW LOG
+# ============================================================
+
+logFolder = (
+    domainFolder /
+    "_workflow_log"
+)
+
+logFolder.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+
+# Copy the original domain-specific control file.
+
+copyfile(
+    source_control,
+    logFolder / source_control.name
+)
+
+
+# Copy this script.
+
+thisFile = Path(__file__).name
+
+copyfile(
+    Path(__file__).resolve(),
+    logFolder / thisFile
+)
+
+
+# ============================================================
+# CREATE LOG FILE
+# ============================================================
+
 now = datetime.now()
 
-# Create a log file 
-logFile = now.strftime('%Y%m%d') + '_log.txt'
-with open(rootPath / domainFolder / logFolder / logFile, 'w') as file:
-    
-    lines = ['Log generated by ' + thisFile + ' on ' + now.strftime('%Y/%m/%d %H:%M:%S') + '\n',
-             'Generated folder structure using ' + sourceFile]
-    for txt in lines:
-        file.write(txt) 
+logFile = (
+    logFolder /
+    f"{now.strftime('%Y%m%d')}_folder_structure_log.txt"
+)
+
+
+with open(logFile, "w") as file:
+
+    file.write(
+        f"Log generated by {thisFile} on "
+        f"{now.strftime('%Y/%m/%d %H:%M:%S')}\n"
+    )
+
+    file.write(
+        f"Source control file: "
+        f"{source_control}\n"
+    )
+
+    file.write(
+        f"Active control file: "
+        f"{active_control}\n"
+    )
+
+    file.write(
+        f"Domain folder: "
+        f"{domainFolder}\n"
+    )
+
+
+print("\nFolder structure created successfully.")
+
+print("\nWorkflow log:")
+print(logFile)

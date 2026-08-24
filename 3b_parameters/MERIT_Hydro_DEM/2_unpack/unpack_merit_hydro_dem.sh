@@ -21,12 +21,12 @@ if [ "$source_path" = "default" ]; then
  root_path=$(echo ${root_path%%#*})
 
  # domain name
- domain_line==$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
+ domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
  domain_name=$(echo ${domain_line##*|}) 
  domain_name=$(echo ${domain_name%%#*})
  
  # source path
- source_path="${root_path}/domain_${domain_name}/parameters/dem/1_MERIT_raw_data"
+ source_path="${root_path}/domain_${domain_name}/parameters/dem/1_MERIT_hydro_raw_data"
 
 fi
 

@@ -4,7 +4,7 @@
 # Extract the modeling domain out of the larger-domain VRT.
 
 # load gdal
-module load gdal/3.0.4
+#module load lib/gdal/3.9.2
 
 
 #---------------------------------
@@ -25,7 +25,7 @@ if [ "$source_path" = "default" ]; then
  root_path=$(echo ${root_path%%#*})
 
  # domain name
- domain_line==$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
+ domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
  domain_name=$(echo ${domain_line##*|}) 
  domain_name=$(echo ${domain_name%%#*})
  

@@ -4,7 +4,7 @@
 # Reprojects the VRTs with MODIS data into EPSG:4326, which the rest of the workflow is based on.
 
 # load gdal
-module load gdal/3.0.4
+# module load gdal/3.0.4
 
 
 #---------------------------------
@@ -25,7 +25,7 @@ if [ "$source_path" = "default" ]; then
  root_path=$(echo ${root_path%%#*})
 
  # domain name
- domain_line==$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
+ domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
  domain_name=$(echo ${domain_line##*|}) 
  domain_name=$(echo ${domain_name%%#*})
  
@@ -48,7 +48,7 @@ if [ "$dest_path" = "default" ]; then
  root_path=$(echo ${root_path%%#*})
 
  # domain name
- domain_line==$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
+ domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
  domain_name=$(echo ${domain_line##*|}) 
  domain_name=$(echo ${domain_name%%#*})
  
@@ -68,17 +68,18 @@ PROJ="EPSG:4326"
 #---------------------------------
 
 # Loop over all vrt files in PATH_SRC 
-for FILE_SRC in $source_path/MCD*.vrt
+for FILE_SRC in "$source_path"/MCD*.vrt
 do
-	
-	# extract the file name
-	FILENAME=$(basename -- $FILE_SRC)
 
-	# construct the destination file
-	FILE_DES=$dest_path/$FILENAME
+    FILENAME=$(basename -- "$FILE_SRC")
 
-	# do the warping
-	gdalwarp -of VRT -t_srs $PROJ $FILE_SRC $FILE_DES
+    FILE_DES="$dest_path/$FILENAME"
+
+    gdalwarp \
+        -of VRT \
+        -t_srs "$PROJ" \
+        "$FILE_SRC" \
+        "$FILE_DES"
 
 done
 

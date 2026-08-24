@@ -1,197 +1,465 @@
+#!/usr/bin/env python
+# coding: utf-8
+
 # Find mode land class
+#
+# Reads the multiband MODIS land-class GeoTIFF and calculates
+# the modal land class across all available bands/years.
+#
+# For the current Example setup there is only one band (2022),
+# so the output will simply equal the 2022 land-class raster.
+#
+# This implementation is also reusable later if multiple annual
+# MODIS bands are available.
 
 # Modules
-import os
 import numpy as np
 from pathlib import Path
 import scipy.stats as sc
 from shutil import copyfile
 from datetime import datetime
-from osgeo import gdal, ogr, osr
+from osgeo import gdal
 
-# --- Control file handling
-# Easy access to control file folder
+
+# =========================================================
+# Control file handling
+# =========================================================
+
 controlFolder = Path('../../../0_control_files')
-
-# Store the name of the 'active' file in a variable
 controlFile = 'control_active.txt'
 
-# Function to extract a given setting from the control file
-def read_from_control( file, setting ):
-    
-    # Open 'control_active.txt' and ...
+
+def read_from_control(file, setting):
+
     with open(file) as contents:
+
         for line in contents:
-            
-            # ... find the line with the requested setting
-            if setting in line and not line.startswith('#'):
-                break
-    
-    # Extract the setting's value
-    substring = line.split('|',1)[1]      # Remove the setting's name (split into 2 based on '|', keep only 2nd part)
-    substring = substring.split('#',1)[0] # Remove comments, does nothing if no '#' is found
-    substring = substring.strip()         # Remove leading and trailing whitespace, tabs, newlines
-       
-    # Return this value    
-    return substring
-    
-# Function to specify a default path
+
+            if line.startswith(setting) and not line.startswith('#'):
+
+                value = line.split('|', 1)[1]
+                value = value.split('#', 1)[0]
+
+                return value.strip()
+
+    raise ValueError(
+        f"Setting not found in control file: {setting}"
+    )
+
+
 def make_default_path(suffix):
-    
-    # Get the root path
-    rootPath = Path( read_from_control(controlFolder/controlFile,'root_path') )
-    
-    # Get the domain folder
-    domainName = read_from_control(controlFolder/controlFile,'domain_name')
+
+    rootPath = Path(
+        read_from_control(
+            controlFolder / controlFile,
+            'root_path'
+        )
+    )
+
+    domainName = read_from_control(
+        controlFolder / controlFile,
+        'domain_name'
+    )
+
     domainFolder = 'domain_' + domainName
-    
-    # Specify the forcing path
-    defaultPath = rootPath / domainFolder / suffix
-    
-    return defaultPath
-    
 
-# --- Find source and destination locations
-# Find where the soil classes are
-landClassPath = read_from_control(controlFolder/controlFile,'parameter_land_tif_path')
+    return rootPath / domainFolder / suffix
 
-# Specify the default paths if required 
+
+# =========================================================
+# Source multiband land-class raster
+# =========================================================
+
+landClassPath = read_from_control(
+    controlFolder / controlFile,
+    'parameter_land_tif_path'
+)
+
 if landClassPath == 'default':
-    landClassPath = make_default_path('parameters/landclass/6_tif_multiband') # outputs a Path()
+
+    landClassPath = make_default_path(
+        'parameters/landclass/6_tif_multiband'
+    )
+
 else:
-    landClassPath = Path(landClassPath) # make sure a user-specified path is a Path()
 
-# Find where the mode soil class needs to go
-modeLandClassPath = read_from_control(controlFolder/controlFile,'parameter_land_mode_path')
+    landClassPath = Path(landClassPath)
 
-# Specify the default paths if required 
+
+# =========================================================
+# Destination mode land-class folder
+# =========================================================
+
+modeLandClassPath = read_from_control(
+    controlFolder / controlFile,
+    'parameter_land_mode_path'
+)
+
 if modeLandClassPath == 'default':
-    modeLandClassPath = make_default_path('parameters/landclass/7_mode_land_class') # outputs a Path()
+
+    modeLandClassPath = make_default_path(
+        'parameters/landclass/7_mode_land_class'
+    )
+
 else:
-    modeLandClassPath = Path(modeLandClassPath) # make sure a user-specified path is a Path()
-    
-# Make the folder if it doesn't exist
-modeLandClassPath.mkdir(parents=True, exist_ok=True)
 
-# --- Filenames
-# Find the name of the source file
-for file in os.listdir(landClassPath):
-    if file.endswith(".tif"):
-        source_file = file
-
-# New file
-dest_file = read_from_control(controlFolder/controlFile,'parameter_land_tif_name')
+    modeLandClassPath = Path(modeLandClassPath)
 
 
-# --- Function definition
-# Opens geotif file, extracts data from a single band and computes corner & center coordinates in lat/lon
-def open_geotif(file,band):
-    
-    # Do the things
-    ds = gdal.Open(file) # open the file
-    band = ds.GetRasterBand(band) # get the data band; there should be 18 for each of the 18 years
-    data = band.ReadAsArray() # convert to numpy array for further manipulation
-    width = ds.RasterXSize # pixel width
-    height = ds.RasterYSize # pixel height
-    rasterSize = [width,height]
-    geoTransform = ds.GetGeoTransform() # geolocation
-    boundingBox = np.zeros((5,2)) # coordinates of bounding box
-    boundingBox[0,0] = boundingBox[1,0] = geoTransform[0]
-    boundingBox[0,1] = boundingBox[2,1] = geoTransform[3]
-    boundingBox[2,0] = boundingBox[3,0] = geoTransform[0] + width*geoTransform[1]
-    boundingBox[1,1] = boundingBox[3,1] = geoTransform[3] + height*geoTransform[5]
-    boundingBox[4,0] = geoTransform[0] + (width/2)*geoTransform[1]
-    boundingBox[4,1] = geoTransform[3] + (height/2)*geoTransform[5]
-    
-    return data, geoTransform, rasterSize, boundingBox
-    
-# Writes data into a new geotif file
-# Source: https://gis.stackexchange.com/questions/199477/gdal-python-cut-geotiff-image/199565
-def write_geotif_sameDomain(src_file,des_file,des_data):
-    
-    # load the source file to get the appropriate attributes
-    src_ds = gdal.Open(src_file)
-    
-    # get the geotransform
-    des_transform = src_ds.GetGeoTransform()
-    
-    # get the data dimensions
-    ncols = des_data.shape[1]
-    nrows = des_data.shape[0]
-    
-    # make the file
-    driver = gdal.GetDriverByName("GTiff")
-    dst_ds = driver.Create(des_file,ncols,nrows,1,gdal.GDT_Float32, options = [ 'COMPRESS=DEFLATE' ])
-    dst_ds.GetRasterBand(1).WriteArray( des_data ) 
-    dst_ds.SetGeoTransform(des_transform)
-    wkt = src_ds.GetProjection()
-    srs = osr.SpatialReference()
-    srs.ImportFromWkt(wkt)
-    dst_ds.SetProjection( srs.ExportToWkt() )
-    
-    # close files
+modeLandClassPath.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+
+# =========================================================
+# Find source TIFF
+# =========================================================
+
+source_files = sorted(
+    landClassPath.glob("*.tif")
+)
+
+if len(source_files) == 0:
+
+    raise RuntimeError(
+        f"No land-class TIFF found in: "
+        f"{landClassPath}"
+    )
+
+
+if len(source_files) > 1:
+
+    raise RuntimeError(
+        f"Expected one multiband land-class TIFF, "
+        f"but found {len(source_files)}:\n"
+        + "\n".join(
+            f"  {f.name}"
+            for f in source_files
+        )
+    )
+
+
+source_file = source_files[0]
+
+print(
+    f"Source land-class file: "
+    f"{source_file}"
+)
+
+
+# =========================================================
+# Destination filename
+# =========================================================
+
+dest_file_name = read_from_control(
+    controlFolder / controlFile,
+    'parameter_land_tif_name'
+)
+
+dest_file = (
+    modeLandClassPath
+    / dest_file_name
+)
+
+print(
+    f"Output mode land-class file: "
+    f"{dest_file}"
+)
+
+
+# =========================================================
+# Open source raster
+# =========================================================
+
+src_ds = gdal.Open(
+    str(source_file),
+    gdal.GA_ReadOnly
+)
+
+if src_ds is None:
+
+    raise RuntimeError(
+        f"Could not open land-class raster: "
+        f"{source_file}"
+    )
+
+
+num_bands = src_ds.RasterCount
+ncols = src_ds.RasterXSize
+nrows = src_ds.RasterYSize
+
+print()
+print("Land-class raster information")
+print("-----------------------------")
+print(f"Columns: {ncols}")
+print(f"Rows   : {nrows}")
+print(f"Bands  : {num_bands}")
+
+
+if num_bands == 0:
+
     src_ds = None
-    des_ds = None
 
-    return
-    
-
-# -------------------------------------------------------------
-
-# ---  Find mode land class 
-# Get land use classes for each year
-land_use_classes = np.dstack((open_geotif( str(landClassPath/source_file) ,1)[0], \
-                              open_geotif( str(landClassPath/source_file) ,2)[0], \
-                              open_geotif( str(landClassPath/source_file) ,3)[0], \
-                              open_geotif( str(landClassPath/source_file) ,4)[0], \
-                              open_geotif( str(landClassPath/source_file) ,5)[0], \
-                              open_geotif( str(landClassPath/source_file) ,6)[0], \
-                              open_geotif( str(landClassPath/source_file) ,7)[0], \
-                              open_geotif( str(landClassPath/source_file) ,8)[0], \
-                              open_geotif( str(landClassPath/source_file) ,9)[0], \
-                              open_geotif( str(landClassPath/source_file) ,10)[0], \
-                              open_geotif( str(landClassPath/source_file) ,11)[0], \
-                              open_geotif( str(landClassPath/source_file) ,12)[0], \
-                              open_geotif( str(landClassPath/source_file) ,13)[0], \
-                              open_geotif( str(landClassPath/source_file) ,14)[0], \
-                              open_geotif( str(landClassPath/source_file) ,15)[0], \
-                              open_geotif( str(landClassPath/source_file) ,16)[0], \
-                              open_geotif( str(landClassPath/source_file) ,17)[0], \
-                              open_geotif( str(landClassPath/source_file) ,18)[0]))
-
-# Extract mode
-mode = sc.mode(land_use_classes,axis=2)[0].squeeze()
-
-# Store this in a new geotif file
-src_file = str(landClassPath/source_file)
-des_file = str(modeLandClassPath/dest_file)
-write_geotif_sameDomain(src_file,des_file,mode)
+    raise RuntimeError(
+        "Land-class raster contains no bands."
+    )
 
 
-# --- Code provenance
-# Generates a basic log file in the domain folder and copies the control file and itself there.
+# =========================================================
+# Read all available bands
+# =========================================================
 
-# Set the log path and file name
+land_use_classes = []
+
+for band_number in range(
+    1,
+    num_bands + 1
+):
+
+    print(
+        f"Reading band "
+        f"{band_number}/{num_bands}"
+    )
+
+    band = src_ds.GetRasterBand(
+        band_number
+    )
+
+    if band is None:
+
+        src_ds = None
+
+        raise RuntimeError(
+            f"Could not read band "
+            f"{band_number}"
+        )
+
+    data = band.ReadAsArray()
+
+    if data is None:
+
+        src_ds = None
+
+        raise RuntimeError(
+            f"Could not read raster values "
+            f"from band {band_number}"
+        )
+
+    land_use_classes.append(
+        data
+    )
+
+
+# Stack to:
+#
+# rows x columns x bands
+#
+land_use_classes = np.dstack(
+    land_use_classes
+)
+
+print()
+print(
+    "Stacked land-class shape:",
+    land_use_classes.shape
+)
+
+
+# =========================================================
+# Calculate modal land class
+# =========================================================
+
+if num_bands == 1:
+
+    # With one year there is no temporal mode calculation
+    # to perform; the only band is the representative class.
+    mode = land_use_classes[:, :, 0]
+
+    print(
+        "Only one MODIS band available; "
+        "using that band directly."
+    )
+
+else:
+
+    print(
+        f"Calculating modal land class "
+        f"across {num_bands} bands."
+    )
+
+    mode_result = sc.mode(
+        land_use_classes,
+        axis=2,
+        keepdims=False
+    )
+
+    mode = mode_result.mode
+
+
+# =========================================================
+# Basic QA
+# =========================================================
+
+unique_classes = np.unique(
+    mode
+)
+
+print()
+print(
+    "Land classes in output:",
+    unique_classes
+)
+
+
+# =========================================================
+# Write output GeoTIFF
+# =========================================================
+
+geo_transform = (
+    src_ds.GetGeoTransform()
+)
+
+projection = (
+    src_ds.GetProjection()
+)
+
+driver = gdal.GetDriverByName(
+    "GTiff"
+)
+
+if driver is None:
+
+    src_ds = None
+
+    raise RuntimeError(
+        "GDAL GTiff driver is unavailable."
+    )
+
+
+# Land classes are integer categorical values.
+# Byte is sufficient for MODIS IGBP classes.
+dst_ds = driver.Create(
+    str(dest_file),
+    ncols,
+    nrows,
+    1,
+    gdal.GDT_Byte,
+    options=[
+        'COMPRESS=DEFLATE'
+    ]
+)
+
+if dst_ds is None:
+
+    src_ds = None
+
+    raise RuntimeError(
+        f"Could not create output file: "
+        f"{dest_file}"
+    )
+
+
+dst_ds.SetGeoTransform(
+    geo_transform
+)
+
+dst_ds.SetProjection(
+    projection
+)
+
+
+output_band = (
+    dst_ds.GetRasterBand(1)
+)
+
+output_band.WriteArray(
+    mode.astype(np.uint8)
+)
+
+output_band.FlushCache()
+
+
+# Close raster datasets
+dst_ds = None
+src_ds = None
+
+
+print()
+print(
+    f"Created: {dest_file}"
+)
+
+
+# =========================================================
+# Code provenance
+# =========================================================
+
 logPath = modeLandClassPath
-log_suffix = '_mode_over_years_log.txt'
-
-# Create a log folder
 logFolder = '_workflow_log'
-Path( logPath / logFolder ).mkdir(parents=True, exist_ok=True)
 
-# Copy this script
+(
+    logPath
+    / logFolder
+).mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+
 thisFile = 'find_mode_landclass.py'
-copyfile(thisFile, logPath / logFolder / thisFile);
 
-# Get current date and time
+try:
+
+    copyfile(
+        thisFile,
+        logPath
+        / logFolder
+        / thisFile
+    )
+
+except FileNotFoundError:
+
+    pass
+
+
 now = datetime.now()
 
-# Create a log file 
-logFile = now.strftime('%Y%m%d') + log_suffix
-with open( logPath / logFolder / logFile, 'w') as file:
-    
-    lines = ['Log generated by ' + thisFile + ' on ' + now.strftime('%Y/%m/%d %H:%M:%S') + '\n',
-             'Found mode landclass over years']
-    for txt in lines:
-        file.write(txt) 
+logFile = (
+    logPath
+    / logFolder
+    / (
+        now.strftime('%Y%m%d')
+        + '_mode_over_years_log.txt'
+    )
+)
 
+
+with open(
+    logFile,
+    'w'
+) as file:
+
+    file.write(
+        f"Log generated by {thisFile} on "
+        f"{now.strftime('%Y/%m/%d %H:%M:%S')}\n"
+    )
+
+    file.write(
+        f"Source file: {source_file.name}\n"
+    )
+
+    file.write(
+        f"Number of MODIS bands: "
+        f"{num_bands}\n"
+    )
+
+    file.write(
+        "Created representative/modal "
+        "land-class raster.\n"
+    )
+
+
+print(
+    f"Workflow log: {logFile}"
+)

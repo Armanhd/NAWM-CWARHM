@@ -4,7 +4,7 @@
 # First creates .txt files that contain the names of .h5 files per year, then creates separate VRTs for each year.
 
 # load gdal
-module load gdal/3.0.4
+#module load gdal/3.0.4
 
 
 #---------------------------------
@@ -25,7 +25,7 @@ if [ "$source_path" = "default" ]; then
  root_path=$(echo ${root_path%%#*})
 
  # domain name
- domain_line==$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
+ domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
  domain_name=$(echo ${domain_line##*|}) 
  domain_name=$(echo ${domain_name%%#*})
  
@@ -49,7 +49,7 @@ if [ "$dest_path" = "default" ]; then
  root_path=$(echo ${root_path%%#*})
 
  # domain name
- domain_line==$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
+ domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
  domain_name=$(echo ${domain_line##*|}) 
  domain_name=$(echo ${domain_name%%#*})
  
@@ -65,7 +65,7 @@ mkdir -p "${dest_path}/filelists"
 # ---------------------------
 hdf4_check=$(gdalinfo --formats | grep 'HDF4')
 if [[ $hdf4_check != *'HDF4'* ]]; then
- echo No HDF4 support found in GDAL module. Check GDAL distribution.
+ echo "No HDF4 support found in the active GDAL installation."
  exit 1
 fi
 
@@ -75,20 +75,29 @@ fi
 
 # Loop over the years and create a .txt file that we can use as input for gdalbuildvrt
 # Note that our variable of interest (MCD12Q1:LC_Type1) is stored in sub dataset 1 (-sd 1)
-for YEAR in {2001..2018}
+# Loop over available MODIS year(s)
+for YEAR in 2022
 do
-	# specify the output name for the file list
-	OUTTXT="${dest_path}/filelists/MCD12Q1_filelist_"$YEAR".txt"
+    OUTTXT="${dest_path}/filelists/MCD12Q1_filelist_${YEAR}.txt"
 
-	# store the hdf files for that year in a temporary file
-	ls $source_path/MCD12Q1.A$YEAR* >> $OUTTXT
+    ls "$source_path"/MCD12Q1.A${YEAR}*.hdf > "$OUTTXT"
 
-	# Specify the output name for the VRT
-	OUTVRT="${dest_path}/MCD12Q1_"$YEAR".vrt"
+    if [ ! -s "$OUTTXT" ]; then
+        echo "No MODIS HDF files found for ${YEAR}"
+        continue
+    fi
 
-	# Make the vrt
-	gdalbuildvrt $OUTVRT -input_file_list $OUTTXT -sd 1 -resolution highest
+    echo "MODIS files found for ${YEAR}: $(wc -l < "$OUTTXT")"
 
+    OUTVRT="${dest_path}/MCD12Q1_${YEAR}.vrt"
+
+    gdalbuildvrt \
+        "$OUTVRT" \
+        -input_file_list "$OUTTXT" \
+        -sd 1 \
+        -resolution highest
+
+    echo "Created: $OUTVRT"
 done
 
 

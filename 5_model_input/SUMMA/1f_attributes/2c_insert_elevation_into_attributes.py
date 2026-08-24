@@ -1,189 +1,688 @@
-# Insert MERIT Hydro elevation in SUMMA set up
-# Inserts elevation of each HRU into the attributes `.nc` file. The intersection code stores this value in field `elev_mean`. 
+# Insert MERIT-Hydro mean HRU elevation into attributes.nc.
 #
-# If the field `settings_summa_connect_HRUs` is set to `yes` in the control file, this script also finds the downslope HRU (attribute `downHRUindex`) for the HRUs within each GRU. The most downstream HRU (i.e. the GRU outlet) is set to `0` to follow SUMMA conventions. If `settings_summa_connect_HRUs` is set to `no`, all HRUs are modelled as indepdendent columns and outflow from all HRUs inside each GRU is combined into basin-average outflow. No further action is needed, as `downHRUindex` for each HRU has already been set to `0`.
+# Step 16 stores mean HRU elevation in:
+#
+#     elev_mean
+#
+# This script matches the elevation shapefile to attributes.nc
+# through the configured HRU ID field and replaces the initial
+# elevation placeholder.
+#
+# HRU connectivity
+# ------------------------------------------------------------
+# If:
+#
+#     settings_summa_connect_HRUs | no
+#
+# every downHRUindex remains 0, meaning each HRU behaves as an
+# independent SUMMA column.
+#
+# If:
+#
+#     settings_summa_connect_HRUs | yes
+#
+# HRUs within each GRU are connected from higher elevation to
+# the next lower-elevation HRU. The lowest HRU in each GRU has
+# downHRUindex = 0.
+#
+# IMPORTANT:
+# downHRUindex is an HRU INDEX, not an hruId. The index refers
+# to the one-based HRU position in attributes.nc. This matters
+# whenever HRU IDs are not identical to 1..N.
+#
+# SUMMA requires connected downslope HRUs to remain inside the
+# same GRU. This script validates that condition.
 
-# modules
-import os
-import numpy as np
-import netCDF4 as nc4
-import geopandas as gpd
 from pathlib import Path
-from shutil import copyfile
 from datetime import datetime
+from shutil import copy2
+
+import geopandas as gpd
+import netCDF4 as nc4
+import numpy as np
 
 
-# --- Control file handling
-# Easy access to control file folder
-controlFolder = Path('../../../0_control_files')
+# ============================================================
+# PROJECT / CONTROL FILE
+# ============================================================
 
-# Store the name of the 'active' file in a variable
-controlFile = 'control_active.txt'
+SCRIPT_DIR = Path(__file__).resolve().parent
+CWARHM_ROOT = SCRIPT_DIR.parents[2]
 
-# Function to extract a given setting from the control file
-def read_from_control( file, setting ):
-    
-    # Open 'control_active.txt' and ...
+CONTROL_FILE = (
+    CWARHM_ROOT
+    / "0_control_files"
+    / "control_active.txt"
+)
+
+if not CONTROL_FILE.exists():
+    raise FileNotFoundError(
+        f"Control file not found:\n{CONTROL_FILE}"
+    )
+
+
+# ============================================================
+# CONTROL FUNCTIONS
+# ============================================================
+
+def read_from_control(file, setting):
+
     with open(file) as contents:
+
         for line in contents:
-            
-            # ... find the line with the requested setting
-            if setting in line and not line.startswith('#'):
-                break
-    
-    # Extract the setting's value
-    substring = line.split('|',1)[1]      # Remove the setting's name (split into 2 based on '|', keep only 2nd part)
-    substring = substring.split('#',1)[0] # Remove comments, does nothing if no '#' is found
-    substring = substring.strip()         # Remove leading and trailing whitespace, tabs, newlines
-       
-    # Return this value    
-    return substring
-    
-# Function to specify a default path
+
+            stripped = line.strip()
+
+            if (
+                stripped
+                and not stripped.startswith("#")
+                and "|" in stripped
+            ):
+
+                left, right = stripped.split(
+                    "|",
+                    1
+                )
+
+                if left.strip() != setting:
+                    continue
+
+                return (
+                    right
+                    .split("#", 1)[0]
+                    .strip()
+                )
+
+    raise ValueError(
+        f"Setting not found in control file: {setting}"
+    )
+
+
 def make_default_path(suffix):
-    
-    # Get the root path
-    rootPath = Path( read_from_control(controlFolder/controlFile,'root_path') )
-    
-    # Get the domain folder
-    domainName = read_from_control(controlFolder/controlFile,'domain_name')
-    domainFolder = 'domain_' + domainName
-    
-    # Specify the forcing path
-    defaultPath = rootPath / domainFolder / suffix
-    
-    return defaultPath
-    
-    
-# --- Find shapefile location and name
-# Path to and name of shapefile with intersection between catchment and soil classes
-intersect_path = read_from_control(controlFolder/controlFile,'intersect_dem_path')
-intersect_name = read_from_control(controlFolder/controlFile,'intersect_dem_name')
 
-# Specify default path if needed
-if intersect_path == 'default':
-    intersect_path = make_default_path('shapefiles/catchment_intersection/with_dem') # outputs a Path()
-else:
-    intersect_path = Path(intersect_path) # make sure a user-specified path is a Path()
-    
-# Variable names used in shapefile
-intersect_hruId_var = read_from_control(controlFolder/controlFile,'catchment_shp_hruid')
-intersect_gruId_var = read_from_control(controlFolder/controlFile,'catchment_shp_gruid')
+    root_path = Path(
+        read_from_control(
+            CONTROL_FILE,
+            "root_path"
+        )
+    )
+
+    domain_name = read_from_control(
+        CONTROL_FILE,
+        "domain_name"
+    )
+
+    return (
+        root_path
+        / f"domain_{domain_name}"
+        / suffix
+    )
 
 
-# --- Find where the attributes file is
-# Attribute path & name
-attribute_path = read_from_control(controlFolder/controlFile,'settings_summa_path')
-attribute_name = read_from_control(controlFolder/controlFile,'settings_summa_attributes')
+def resolve_path(setting, default_suffix):
 
-# Specify default path if needed
-if attribute_path == 'default':
-    attribute_path = make_default_path('settings/SUMMA') # outputs a Path()
-else:
-    attribute_path = Path(attribute_path) # make sure a user-specified path is a Path()
-    
-    
-# --- Open the shapefile
-# Open files
-shp = gpd.read_file(intersect_path/intersect_name)
+    value = read_from_control(
+        CONTROL_FILE,
+        setting
+    )
+
+    if value == "default":
+        return make_default_path(
+            default_suffix
+        )
+
+    return Path(value)
 
 
-# --- Define downHRUindex values if requested
-# Create a field with downHRUindex = 0, that we wil potentially overwrite
-shp['downHRUindex'] = 0
+# ============================================================
+# PATHS
+# ============================================================
 
-# Find if this is requested by the user
-do_downHRUindex = read_from_control(controlFolder/controlFile,'settings_summa_connect_HRUs')
+domain_name = read_from_control(
+    CONTROL_FILE,
+    "domain_name"
+)
 
-# Find the downHRUindex value if requested
-if do_downHRUindex.lower() == 'yes':
-    
-    # Find the unique GRU IDs
-    gru_ids = shp[intersect_gruId_var].unique()
-    
-    # Make hruId the index
-    shp.set_index(intersect_hruId_var, inplace=True)
-    
-    # Loop over the GRUs
-    for gru_id in gru_ids:
-    
-        # Select only the GRU we're currently working on
-        gru_mask = (shp[intersect_gruId_var] == gru_id)
-    
-        # Find the soring order of HRUs in this GRU based on their elevations
-        tmp_sort = shp[gru_mask]['elev_mean'].argsort()
-    
-        # Loop over the HRUs in this GRU and set their downHRUindex in the shapefile
-        HRUs_seen = 0
-        last_HRU = 0
-        for HRU,order in tmp_sort.iteritems():
-            if order == 0: 
-                # most downstream HRU
-                print('Filling downHRUindex of HRU {} with HRU {}'.format(last_HRU,HRU)) 
-                print('Filling downHRUindex of HRU {} with HRU {}'.format(HRU,0)) 
-                if last_HRU != 0: # If there are more HRUs in this GRU ...
-                    shp.at[last_HRU, 'downHRUindex'] = int(HRU) # fill the second-to last and also ...
-                shp.at[HRU,      'downHRUindex'] = 0   # fill the last (possibly only) HRU
-            elif HRUs_seen > 0:
-                # not the first iteration
-                print('Filling downHRUindex of HRU {} with HRU {}'.format(last_HRU,HRU))        
-                shp.at[last_HRU, 'downHRUindex'] = int(HRU)
-            HRUs_seen += 1
-            last_HRU = HRU
-            
-    # Reset the index
-    shp.reset_index(inplace=True)
-    
-    
-# --- Open the attributes file and fill the placeholder values in the attributes file
-# Open the netcdf file for reading+writing
-with nc4.Dataset(attribute_path/attribute_name, "r+") as att:
-    
-    # Loop over the HRUs in the attributes
-    for idx in range(0,len(att['hruId'])):
-        
-        # Find the HRU ID (attributes file) at this index
-        attribute_hru = att['hruId'][idx]
-    
-        # Find the row in the shapefile that contains info for this HRU
-        shp_mask = (shp[intersect_hruId_var].astype(int) == attribute_hru)
-        
-        # Find the elevation & downHRUindex
-        tmp_elev = shp['elev_mean'][shp_mask].values[0]
-        tmp_down = shp['downHRUindex'][shp_mask].values[0]
-        
-        # Replace the value
-        print('Replacing elevation {} [m] with {} [m] at HRU {}'.format(att['elevation'][idx],tmp_elev,attribute_hru))
-        att['elevation'][idx] = tmp_elev
-        
-        if do_downHRUindex.lower() == 'yes':
-            print('Replacing downHRUindex {} with {} at HRU {}'.format(att['downHRUindex'][idx],tmp_down,attribute_hru))
-            att['downHRUindex'][idx] = tmp_down
-            
-            
-# --- Code provenance
-# Generates a basic log file in the domain folder and copies the control file and itself there.
 
-# Set the log path and file name
-logPath = attribute_path
-log_suffix = '_add_elevation_to_attributes.txt'
+intersect_path = resolve_path(
+    "intersect_dem_path",
+    "shapefiles/catchment_intersection/with_dem"
+)
 
-# Create a log folder
-logFolder = '_workflow_log'
-Path( logPath / logFolder ).mkdir(parents=True, exist_ok=True)
+intersect_name = read_from_control(
+    CONTROL_FILE,
+    "intersect_dem_name"
+)
 
-# Copy this script
-thisFile = '2c_insert_elevation_into_attributes.py'
-copyfile(thisFile, logPath / logFolder / thisFile);
+intersect_file = (
+    intersect_path
+    / intersect_name
+)
 
-# Get current date and time
+
+settings_path = resolve_path(
+    "settings_summa_path",
+    "settings/SUMMA"
+)
+
+attribute_name = read_from_control(
+    CONTROL_FILE,
+    "settings_summa_attributes"
+)
+
+attribute_file = (
+    settings_path
+    / attribute_name
+)
+
+
+hru_field = read_from_control(
+    CONTROL_FILE,
+    "catchment_shp_hruid"
+)
+
+gru_field = read_from_control(
+    CONTROL_FILE,
+    "catchment_shp_gruid"
+)
+
+
+connect_hrus = read_from_control(
+    CONTROL_FILE,
+    "settings_summa_connect_HRUs"
+).strip().lower()
+
+
+if connect_hrus not in [
+    "yes",
+    "no"
+]:
+    raise ValueError(
+        "settings_summa_connect_HRUs "
+        "must be 'yes' or 'no'."
+    )
+
+
+# ============================================================
+# VALIDATE FILES
+# ============================================================
+
+if not intersect_file.exists():
+    raise FileNotFoundError(
+        f"DEM-intersection shapefile not found:\n"
+        f"{intersect_file}"
+    )
+
+
+if not attribute_file.exists():
+    raise FileNotFoundError(
+        f"attributes.nc not found:\n"
+        f"{attribute_file}"
+    )
+
+
+# ============================================================
+# READ ELEVATION SHAPEFILE
+# ============================================================
+
+shp = gpd.read_file(
+    intersect_file
+)
+
+
+required_fields = [
+    hru_field,
+    gru_field,
+    "elev_mean",
+]
+
+
+missing_fields = [
+    field
+    for field in required_fields
+    if field not in shp.columns
+]
+
+
+if missing_fields:
+    raise RuntimeError(
+        "Required elevation fields missing:\n"
+        + "\n".join(
+            f"  {field}"
+            for field in missing_fields
+        )
+    )
+
+
+shp[hru_field] = shp[
+    hru_field
+].astype(
+    np.int64
+)
+
+shp[gru_field] = shp[
+    gru_field
+].astype(
+    np.int64
+)
+
+
+if shp[hru_field].duplicated().any():
+    raise RuntimeError(
+        f"Duplicate {hru_field} values "
+        "found in elevation shapefile."
+    )
+
+
+if not np.all(
+    np.isfinite(
+        shp["elev_mean"]
+        .to_numpy(
+            dtype=np.float64
+        )
+    )
+):
+    raise RuntimeError(
+        "Non-finite elev_mean values found."
+    )
+
+
+shp = shp.set_index(
+    hru_field,
+    drop=False
+)
+
+
+# ============================================================
+# READ ATTRIBUTES ORDER
+# ============================================================
+
+with nc4.Dataset(
+    attribute_file,
+    "r"
+) as att:
+
+    for required in [
+        "hruId",
+        "hru2gruId",
+        "elevation",
+        "downHRUindex"
+    ]:
+
+        if required not in att.variables:
+            raise RuntimeError(
+                f"{required} missing from attributes.nc"
+            )
+
+
+    attribute_hrus = np.asarray(
+        att["hruId"][:],
+        dtype=np.int64
+    )
+
+    attribute_grus = np.asarray(
+        att["hru2gruId"][:],
+        dtype=np.int64
+    )
+
+
+num_hru = len(
+    attribute_hrus
+)
+
+
+if len(attribute_grus) != num_hru:
+    raise RuntimeError(
+        "hruId and hru2gruId lengths differ."
+    )
+
+
+missing_hrus = [
+    int(hru)
+    for hru in attribute_hrus
+    if hru not in shp.index
+]
+
+
+if missing_hrus:
+    raise RuntimeError(
+        "HRUs missing from elevation intersection:\n"
+        f"{missing_hrus}"
+    )
+
+
+# ============================================================
+# BUILD ELEVATION ARRAY IN ATTRIBUTES ORDER
+# ============================================================
+
+elevations = np.asarray(
+    [
+        float(
+            shp.loc[
+                int(hru),
+                "elev_mean"
+            ]
+        )
+        for hru
+        in attribute_hrus
+    ],
+    dtype=np.float64
+)
+
+
+shape_grus = np.asarray(
+    [
+        int(
+            shp.loc[
+                int(hru),
+                gru_field
+            ]
+        )
+        for hru
+        in attribute_hrus
+    ],
+    dtype=np.int64
+)
+
+
+if not np.array_equal(
+    shape_grus,
+    attribute_grus
+):
+    raise RuntimeError(
+        "GRU assignments differ between "
+        "attributes.nc and elevation shapefile."
+    )
+
+
+# ============================================================
+# BUILD downHRUindex
+# ============================================================
+
+downstream_index = np.zeros(
+    num_hru,
+    dtype=np.int32
+)
+
+
+if connect_hrus == "yes":
+
+    unique_grus = []
+
+    for gru in attribute_grus:
+
+        gru = int(gru)
+
+        if gru not in unique_grus:
+            unique_grus.append(
+                gru
+            )
+
+
+    for gru in unique_grus:
+
+        positions = np.where(
+            attribute_grus == gru
+        )[0]
+
+
+        if len(positions) == 1:
+
+            downstream_index[
+                positions[0]
+            ] = 0
+
+            continue
+
+
+        gru_elevations = elevations[
+            positions
+        ]
+
+
+        # Sort from highest to lowest elevation.
+        #
+        # np.lexsort uses the second key first:
+        #   primary   = -elevation
+        #   tie-break = existing attributes position
+        #
+        # This gives deterministic behavior for tied elevation.
+
+        order = np.lexsort(
+            (
+                positions,
+                -gru_elevations
+            )
+        )
+
+
+        ordered_positions = positions[
+            order
+        ]
+
+
+        for current, downstream in zip(
+            ordered_positions[:-1],
+            ordered_positions[1:]
+        ):
+
+            # SUMMA downHRUindex is one-based.
+            downstream_index[
+                current
+            ] = int(
+                downstream + 1
+            )
+
+
+        # Lowest HRU is the GRU outlet.
+
+        downstream_index[
+            ordered_positions[-1]
+        ] = 0
+
+
+# ============================================================
+# VALIDATE CONNECTIVITY
+# ============================================================
+
+for position, downstream in enumerate(
+    downstream_index
+):
+
+    downstream = int(
+        downstream
+    )
+
+
+    if downstream == 0:
+        continue
+
+
+    if (
+        downstream < 1
+        or downstream > num_hru
+    ):
+        raise RuntimeError(
+            f"Invalid downHRUindex {downstream} "
+            f"at HRU position {position + 1}."
+        )
+
+
+    downstream_position = (
+        downstream - 1
+    )
+
+
+    if attribute_grus[
+        downstream_position
+    ] != attribute_grus[
+        position
+    ]:
+
+        raise RuntimeError(
+            "A downstream HRU crosses a GRU boundary."
+        )
+
+
+    if downstream_position == position:
+
+        raise RuntimeError(
+            "An HRU cannot drain to itself."
+        )
+
+
+# ============================================================
+# REPORT
+# ============================================================
+
+print()
+print("============================================================")
+print("INSERT ELEVATION INTO ATTRIBUTES")
+print("============================================================")
+print(f"Domain         : {domain_name}")
+print(f"Input          : {intersect_file}")
+print(f"Attributes     : {attribute_file}")
+print(f"HRUs           : {num_hru}")
+print(f"Connect HRUs   : {connect_hrus}")
+print(
+    f"Elevation range: "
+    f"{elevations.min():.3f} - "
+    f"{elevations.max():.3f} m"
+)
+
+
+# ============================================================
+# WRITE attributes.nc
+# ============================================================
+
+with nc4.Dataset(
+    attribute_file,
+    "r+"
+) as att:
+
+    att["elevation"][:] = (
+        elevations
+    )
+
+    # Explicitly write all zeros when connectivity is disabled.
+    # This ensures a clean rerun after a previous connected run.
+
+    att["downHRUindex"][:] = (
+        downstream_index
+    )
+
+
+# ============================================================
+# VERIFY OUTPUT
+# ============================================================
+
+with nc4.Dataset(
+    attribute_file,
+    "r"
+) as att:
+
+    output_elevation = np.asarray(
+        att["elevation"][:],
+        dtype=np.float64
+    )
+
+    output_downstream = np.asarray(
+        att["downHRUindex"][:],
+        dtype=np.int64
+    )
+
+
+if not np.allclose(
+    output_elevation,
+    elevations
+):
+    raise RuntimeError(
+        "Elevation verification failed."
+    )
+
+
+if not np.array_equal(
+    output_downstream,
+    downstream_index.astype(
+        np.int64
+    )
+):
+    raise RuntimeError(
+        "downHRUindex verification failed."
+    )
+
+
+print()
+print(
+    f"downHRUindex non-zero count: "
+    f"{np.count_nonzero(output_downstream)}"
+)
+
+
+# ============================================================
+# LOGGING
+# ============================================================
+
+log_folder = (
+    settings_path
+    / "_workflow_log"
+)
+
+log_folder.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+
+this_file = Path(__file__).name
+
+copy2(
+    Path(__file__).resolve(),
+    log_folder / this_file
+)
+
+
 now = datetime.now()
 
-# Create a log file 
-logFile = now.strftime('%Y%m%d') + log_suffix
-with open( logPath / logFolder / logFile, 'w') as file:
-    
-    lines = ['Log generated by ' + thisFile + ' on ' + now.strftime('%Y/%m/%d %H:%M:%S') + '\n',
-             'Added elevation to attributes .nc file.']
-    for txt in lines:
-        file.write(txt) 
+log_file = (
+    log_folder
+    / f"{now:%Y%m%d}_add_elevation_to_attributes.txt"
+)
+
+
+with open(
+    log_file,
+    "w"
+) as file:
+
+    file.write(
+        f"Log generated by {this_file} "
+        f"on {now:%Y/%m/%d %H:%M:%S}\n"
+    )
+
+    file.write(
+        f"Domain: {domain_name}\n"
+    )
+
+    file.write(
+        f"HRUs: {num_hru}\n"
+    )
+
+    file.write(
+        f"Connect HRUs: {connect_hrus}\n"
+    )
+
+    file.write(
+        f"Elevation range: "
+        f"{elevations.min():.3f} - "
+        f"{elevations.max():.3f} m\n"
+    )
+
+    file.write(
+        f"Non-zero downHRUindex values: "
+        f"{np.count_nonzero(downstream_index)}\n"
+    )
+
+
+print()
+print("Elevation inserted successfully.")

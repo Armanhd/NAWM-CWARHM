@@ -1,129 +1,128 @@
-# Convert the MERIT .vrt to .tif 
+#!/bin/bash
+
+# Convert the MERIT .vrt to .tif
 
 # modules
-module load gdal/3.0.4
+#module load lib/gdal/3.9.2
 
-
-#---------------------------------
+# ---------------------------------
 # Specify settings
-#---------------------------------
+# ---------------------------------
 
 # --- Location of source data
-dest_line=$(grep -m 1 "^parameter_dem_unpack_path" ../../../0_control_files/control_active.txt) # full settings line
-data_path=$(echo ${dest_line##*|})   # removing the leading text up to '|'
-data_path=$(echo ${data_path%%#*}) # removing the trailing comments, if any are present
 
-# Specify the default path if needed
+dest_line=$(grep -m 1 "^parameter_dem_unpack_path" ../../../0_control_files/control_active.txt)
+data_path=$(echo ${dest_line##*|})
+data_path=$(echo ${data_path%%#*})
+data_path=$(echo "$data_path" | xargs)
+
 if [ "$data_path" = "default" ]; then
-  
- # Get the root path and append the appropriate install directories
- root_line=$(grep -m 1 "^root_path" ../../../0_control_files/control_active.txt)
- root_path=$(echo ${root_line##*|}) 
- root_path=$(echo ${root_path%%#*})
 
- # domain name
- domain_line==$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
- domain_name=$(echo ${domain_line##*|}) 
- domain_name=$(echo ${domain_name%%#*})
- 
- # source path
- data_path="${root_path}/domain_${domain_name}/parameters/dem/2_MERIT_hydro_unpacked_data"
+    root_line=$(grep -m 1 "^root_path" ../../../0_control_files/control_active.txt)
+    root_path=$(echo ${root_line##*|})
+    root_path=$(echo ${root_path%%#*})
+    root_path=$(echo "$root_path" | xargs)
 
+    domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
+    domain_name=$(echo ${domain_line##*|})
+    domain_name=$(echo ${domain_name%%#*})
+    domain_name=$(echo "$domain_name" | xargs)
+
+    data_path="${root_path}/domain_${domain_name}/parameters/dem/2_MERIT_hydro_unpacked_data"
 fi
 
 # --- Location of source VRT
-dest_line=$(grep -m 1 "^parameter_dem_vrt2_path" ../../../0_control_files/control_active.txt) # full settings line
-source_path=$(echo ${dest_line##*|})   # removing the leading text up to '|'
-source_path=$(echo ${source_path%%#*}) # removing the trailing comments, if any are present
 
-# Specify the default path if needed
+dest_line=$(grep -m 1 "^parameter_dem_vrt2_path" ../../../0_control_files/control_active.txt)
+source_path=$(echo ${dest_line##*|})
+source_path=$(echo ${source_path%%#*})
+source_path=$(echo "$source_path" | xargs)
+
 if [ "$source_path" = "default" ]; then
-  
- # Get the root path and append the appropriate install directories
- root_line=$(grep -m 1 "^root_path" ../../../0_control_files/control_active.txt)
- root_path=$(echo ${root_line##*|}) 
- root_path=$(echo ${root_path%%#*})
 
- # domain name
- domain_line==$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
- domain_name=$(echo ${domain_line##*|}) 
- domain_name=$(echo ${domain_name%%#*})
- 
- # source path
- source_path="${root_path}/domain_${domain_name}/parameters/dem/4_domain_vrt"
+    root_line=$(grep -m 1 "^root_path" ../../../0_control_files/control_active.txt)
+    root_path=$(echo ${root_line##*|})
+    root_path=$(echo ${root_path%%#*})
+    root_path=$(echo "$root_path" | xargs)
 
+    domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
+    domain_name=$(echo ${domain_line##*|})
+    domain_name=$(echo ${domain_name%%#*})
+    domain_name=$(echo "$domain_name" | xargs)
+
+    source_path="${root_path}/domain_${domain_name}/parameters/dem/4_domain_vrt"
 fi
 
 # --- Location where converted data needs to go
-dest_line=$(grep -m 1 "^parameter_dem_tif_path" ../../../0_control_files/control_active.txt) # full settings line
-dest_path=$(echo ${dest_line##*|})   # removing the leading text up to '|'
-dest_path=$(echo ${dest_path%%#*}) # removing the trailing comments, if any are present
 
-# Specify the default path if needed
+dest_line=$(grep -m 1 "^parameter_dem_tif_path" ../../../0_control_files/control_active.txt)
+dest_path=$(echo ${dest_line##*|})
+dest_path=$(echo ${dest_path%%#*})
+dest_path=$(echo "$dest_path" | xargs)
+
 if [ "$dest_path" = "default" ]; then
-  
- # Get the root path and append the appropriate install directories
- root_line=$(grep -m 1 "^root_path" ../../../0_control_files/control_active.txt)
- root_path=$(echo ${root_line##*|}) 
- root_path=$(echo ${root_path%%#*})
 
- # domain name
- domain_line==$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
- domain_name=$(echo ${domain_line##*|}) 
- domain_name=$(echo ${domain_name%%#*})
- 
- # destination path
- dest_path="${root_path}/domain_${domain_name}/parameters/dem/5_elevation"
+    root_line=$(grep -m 1 "^root_path" ../../../0_control_files/control_active.txt)
+    root_path=$(echo ${root_line##*|})
+    root_path=$(echo ${root_path%%#*})
+    root_path=$(echo "$root_path" | xargs)
+
+    domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
+    domain_name=$(echo ${domain_line##*|})
+    domain_name=$(echo ${domain_name%%#*})
+    domain_name=$(echo "$domain_name" | xargs)
+
+    dest_path="${root_path}/domain_${domain_name}/parameters/dem/5_elevation"
 fi
 
-# Make destination directory 
-mkdir -p $dest_path
+mkdir -p "$dest_path"
 
 # --- Filenames
-# Source file
-vrt_file=$(ls $source_path/*.vrt)
 
-# Find the name of the output file from control file
-name_line=$(grep -m 1 "^parameter_dem_tif_name" ../../../0_control_files/control_active.txt) # full settings line
-dest_name=$(echo ${name_line##*|})   # removing the leading text up to '|'
-dest_name=$(echo ${dest_name%%#*}) # removing the trailing comments, if any are present
+vrt_file=$(ls "$source_path"/*.vrt)
 
-# Make the destination path+name
+name_line=$(grep -m 1 "^parameter_dem_tif_name" ../../../0_control_files/control_active.txt)
+dest_name=$(echo ${name_line##*|})
+dest_name=$(echo ${dest_name%%#*})
+dest_name=$(echo "$dest_name" | xargs)
+
 tif_file="${dest_path}/${dest_name}"
 
-#--------------------------------------------------------------------------
-# Check if we need BIGTIFF (IF_NEEDED doesn't work with compression, sadly)
-#--------------------------------------------------------------------------
-fold_size=($(du -s $data_path))
-if (($fold_size > 4000000)); then
- bigtiff_flag='YES'
+# --------------------------------------------------------------------------
+# Check if BIGTIFF is needed
+# --------------------------------------------------------------------------
+
+fold_size=($(du -s "$data_path"))
+
+if ((fold_size > 4000000)); then
+    bigtiff_flag='YES'
 else
- bigtiff_flag='NO'
+    bigtiff_flag='NO'
 fi
 
-
-#---------------------------------
+# ---------------------------------
 # Create .tif file
-#---------------------------------
-gdal_translate -co COMPRESS="DEFLATE" -co BIGTIFF=$bigtiff_flag $vrt_file $tif_file
+# ---------------------------------
 
+gdal_translate \
+    -co COMPRESS="DEFLATE" \
+    -co BIGTIFF="$bigtiff_flag" \
+    "$vrt_file" \
+    "$tif_file"
 
-#---------------------------------
+# ---------------------------------
 # Code provenance
-#---------------------------------
-# Generates a basic log file in the domain folder and copies the control file and itself there.
-# Make a log directory if it doesn't exist
-log_path="${dest_path}/_workflow_log"
-mkdir -p $log_path
+# ---------------------------------
 
-# Log filename
-today=`date '+%F'`
+log_path="${dest_path}/_workflow_log"
+mkdir -p "$log_path"
+
+today=$(date '+%F')
 log_file="${today}_compile_log.txt"
 
-# Make the log
 this_file='convert_vrt_to_tif.sh'
-echo "Log generated by ${this_file} on `date '+%F %H:%M:%S'`"  > $log_path/$log_file # 1st line, store in new file
-echo 'Converted MERIT .vrt into .tif.' >> $log_path/$log_file # 2nd line, append to existing file
 
-# Copy this file to log directory
-cp $this_file $log_path
+echo "Log generated by ${this_file} on $(date '+%F %H:%M:%S')" > "$log_path/$log_file"
+echo 'Converted MERIT .vrt into .tif.' >> "$log_path/$log_file"
+
+cp "$this_file" "$log_path"

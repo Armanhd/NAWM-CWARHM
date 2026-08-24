@@ -4,7 +4,7 @@
 # Extract the modeling domain out of the global-cover VRTs.
 
 # load the module
-module load gdal/3.0.4
+# module load gdal/3.0.4
 
 #---------------------------------
 # Specify settings
@@ -24,7 +24,7 @@ if [ "$source_path" = "default" ]; then
  root_path=$(echo ${root_path%%#*})
 
  # domain name
- domain_line==$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
+ domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
  domain_name=$(echo ${domain_line##*|}) 
  domain_name=$(echo ${domain_name%%#*})
  
@@ -47,7 +47,7 @@ if [ "$dest_path" = "default" ]; then
  root_path=$(echo ${root_path%%#*})
 
  # domain name
- domain_line==$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
+ domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
  domain_name=$(echo ${domain_line##*|}) 
  domain_name=$(echo ${domain_name%%#*})
  
@@ -77,17 +77,21 @@ done <<< "$domain_full"
 #---------------------------------
 
 # Loop over all files
-for FILE_SRC in $source_path/MCD*.vrt
+for FILE_SRC in "$source_path"/MCD*.vrt
 do
 
-	# Extract the filename
-	FILENAME=$(basename -- $FILE_SRC)
+    FILENAME=$(basename -- "$FILE_SRC")
 
-	# construct the destination file
-	FILE_DES=$dest_path/"domain_"$FILENAME
+    FILE_DES="$dest_path/domain_$FILENAME"
 
-	# Do the cut out
-	gdal_translate -of VRT -projwin $LON_MIN $LAT_MAX $LON_MAX $LAT_MIN $FILE_SRC $FILE_DES
+    echo "Cropping: $FILENAME"
+    echo "Bounds: $LON_MIN $LAT_MAX $LON_MAX $LAT_MIN"
+
+    gdal_translate \
+        -of VRT \
+        -projwin "$LON_MIN" "$LAT_MAX" "$LON_MAX" "$LAT_MIN" \
+        "$FILE_SRC" \
+        "$FILE_DES"
 
 done
 
