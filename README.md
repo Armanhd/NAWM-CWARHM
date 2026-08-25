@@ -12,7 +12,7 @@ The original CWARHM workflow and its scientific rationale are described in:
 
 > Knoben, W. J. M., Clark, M. P., Bales, J., Bennett, A., Gharari, S., Marsh, C. B., Nijssen, B., Pietroniro, A., Spiteri, R. J., Tang, G., Tarboton, D. G., & Wood, A. W. (2022). Community Workflows to Advance Reproducibility in Hydrologic Modeling: Separating model-agnostic and model-specific configuration steps in applications of large-domain hydrologic models. *Water Resources Research*, **58**, e2021WR031753. https://doi.org/10.1029/2021WR031753
 
-The original CWARHM repository should be consulted for the conceptual basis of the workflow, detailed descriptions of its original components, and the original local, continental, and global test cases.
+The original CWARHM repository should be consulted for the conceptual basis of the workflow, detailed descriptions of its original components and test cases.
 
 ---
 
