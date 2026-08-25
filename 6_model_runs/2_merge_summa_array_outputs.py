@@ -1211,7 +1211,7 @@ copyfile(
 log_file = (
     log_folder
     / (
-        f"{datetime.now():%Y%m%d}_"
+        f"{datetime.now():%Y%m%d_%H%M%S}_"
         "merge_summa_array_outputs.txt"
     )
 )

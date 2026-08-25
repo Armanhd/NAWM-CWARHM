@@ -30,7 +30,10 @@ read_control() {
     local key="$1"
 
     awk -F'|' -v key="$key" '
-        /^[[:space:]]*#/ {next}
+
+        /^[[:space:]]*#/ {
+            next
+        }
 
         NF >= 2 {
 
@@ -47,6 +50,7 @@ read_control() {
                 exit
             }
         }
+
     ' "$CONTROL"
 }
 
@@ -70,6 +74,10 @@ LOG_PATH="$(read_control experiment_log_summa)"
 
 DO_BACKUP="$(read_control experiment_backup_settings)"
 
+
+# ============================================================
+# DEFAULT PATHS
+# ============================================================
 
 if [ "$SUMMA_PATH" = "default" ]; then
     SUMMA_PATH="${ROOT_PATH}/installs/summa"
@@ -97,24 +105,79 @@ FILEMANAGER_PATH="${SETTINGS_PATH}/${FILEMANAGER}"
 # ============================================================
 
 if [ -z "${SLURM_ARRAY_TASK_ID:-}" ]; then
+
+    echo
     echo "ERROR: this script must be run as a Slurm array job."
+
     exit 1
 fi
+
 
 GRUS_PER_TASK="${GRUS_PER_TASK:-10}"
 TOTAL_GRUS="${TOTAL_GRUS:?TOTAL_GRUS was not supplied by submitter}"
 
-GRU_START=$((SLURM_ARRAY_TASK_ID * GRUS_PER_TASK + 1))
-GRU_COUNT="$GRUS_PER_TASK"
 
-GRU_END=$((GRU_START + GRU_COUNT - 1))
+if ! [[ "$GRUS_PER_TASK" =~ ^[1-9][0-9]*$ ]]; then
 
-if [ "$GRU_END" -gt "$TOTAL_GRUS" ]; then
-    GRU_COUNT=$((TOTAL_GRUS - GRU_START + 1))
+    echo
+    echo "ERROR: GRUS_PER_TASK must be a positive integer."
+    echo "Current value: $GRUS_PER_TASK"
+
+    exit 1
 fi
 
+
+if ! [[ "$TOTAL_GRUS" =~ ^[1-9][0-9]*$ ]]; then
+
+    echo
+    echo "ERROR: TOTAL_GRUS must be a positive integer."
+    echo "Current value: $TOTAL_GRUS"
+
+    exit 1
+fi
+
+
+GRU_START=$(
+    (
+        SLURM_ARRAY_TASK_ID
+        * GRUS_PER_TASK
+        + 1
+    )
+)
+
+
+GRU_COUNT="$GRUS_PER_TASK"
+
+
+GRU_END=$(
+    (
+        GRU_START
+        + GRU_COUNT
+        - 1
+    )
+)
+
+
+if [ "$GRU_END" -gt "$TOTAL_GRUS" ]; then
+
+    GRU_COUNT=$(
+        (
+            TOTAL_GRUS
+            - GRU_START
+            + 1
+        )
+    )
+
+fi
+
+
 if [ "$GRU_COUNT" -le 0 ]; then
+
+    echo
     echo "ERROR: calculated GRU_COUNT <= 0"
+    echo "GRU_START: $GRU_START"
+    echo "TOTAL_GRUS: $TOTAL_GRUS"
+
     exit 1
 fi
 
@@ -127,38 +190,63 @@ LOG_FILE="${LOG_PATH}/summa_G${GRU_START}_${GRU_COUNT}_${SLURM_ARRAY_TASK_ID}.tx
 # ============================================================
 
 module load conda/base
-conda activate nwam
+
+conda activate nwam_parallel
+
+
+if [ "${CONDA_DEFAULT_ENV:-}" != "nwam_parallel" ]; then
+
+    echo
+    echo "ERROR: Failed to activate nwam_parallel."
+    echo "Active environment: ${CONDA_DEFAULT_ENV:-none}"
+
+    exit 1
+fi
+
 
 export PATH="${CONDA_PREFIX}/bin:${PATH}"
+
 export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
 
 
 # ============================================================
-# CHECKS
+# REQUIRED FILE CHECKS
 # ============================================================
 
 if [ ! -x "$SUMMA_EXEC" ]; then
+
+    echo
     echo "ERROR: SUMMA executable not found:"
     echo "$SUMMA_EXEC"
+
     exit 1
 fi
+
 
 if [ ! -f "$FILEMANAGER_PATH" ]; then
+
+    echo
     echo "ERROR: SUMMA fileManager not found:"
     echo "$FILEMANAGER_PATH"
+
     exit 1
 fi
 
+
+# ============================================================
+# OUTPUT DIRECTORIES
+# ============================================================
 
 mkdir -p "$OUTPUT_PATH"
 mkdir -p "$LOG_PATH"
 
 
 # ============================================================
-# BACKUP SETTINGS
+# SETTINGS BACKUP
 # ============================================================
 
-if [ "$DO_BACKUP" = "yes" ] && [ "$SLURM_ARRAY_TASK_ID" = "0" ]; then
+if [ "$DO_BACKUP" = "yes" ] \
+    && [ "$SLURM_ARRAY_TASK_ID" = "0" ]; then
 
     BACKUP_PATH="${OUTPUT_PATH}/run_settings"
 
@@ -167,6 +255,7 @@ if [ "$DO_BACKUP" = "yes" ] && [ "$SLURM_ARRAY_TASK_ID" = "0" ]; then
     cp -R \
         "${SETTINGS_PATH}/." \
         "$BACKUP_PATH/"
+
 fi
 
 
@@ -178,21 +267,24 @@ echo "============================================================"
 echo "RUN SUMMA GRU SUBSET"
 echo "============================================================"
 
-echo "Domain      : $DOMAIN_NAME"
-echo "Experiment  : $EXPERIMENT_ID"
-echo "Array task  : $SLURM_ARRAY_TASK_ID"
-echo "GRU start   : $GRU_START"
-echo "GRU count   : $GRU_COUNT"
-echo "Total GRUs  : $TOTAL_GRUS"
-echo "Executable  : $SUMMA_EXEC"
-echo "Log         : $LOG_FILE"
-echo "Start       : $(date)"
+echo "Domain       : $DOMAIN_NAME"
+echo "Experiment   : $EXPERIMENT_ID"
+echo "Environment  : $CONDA_DEFAULT_ENV"
+echo "Array task   : $SLURM_ARRAY_TASK_ID"
+echo "GRU start    : $GRU_START"
+echo "GRU count    : $GRU_COUNT"
+echo "Total GRUs   : $TOTAL_GRUS"
+echo "Executable   : $SUMMA_EXEC"
+echo "FileManager  : $FILEMANAGER_PATH"
+echo "Output       : $OUTPUT_PATH"
+echo "Log          : $LOG_FILE"
+echo "Start        : $(date)"
 
 echo "============================================================"
 
 
 # ============================================================
-# RUN
+# RUN SUMMA
 # ============================================================
 
 set +e
@@ -208,22 +300,36 @@ set -e
 
 
 # ============================================================
-# VERIFY SUMMA'S OWN SUCCESS MESSAGE
+# VERIFY SUMMA SUCCESS
 # ============================================================
 
 MODEL_SUCCESS="no"
 
-if grep -qi "finished simulation successfully" "$LOG_FILE"; then
+
+if grep -qi \
+    "finished simulation successfully" \
+    "$LOG_FILE"
+then
+
     MODEL_SUCCESS="yes"
+
 fi
 
 
-if [ "$STATUS" -ne 0 ] || [ "$MODEL_SUCCESS" != "yes" ]; then
+if [ "$STATUS" -ne 0 ] \
+    || [ "$MODEL_SUCCESS" != "yes" ]; then
 
     echo
-    echo "SUMMA subset FAILED."
-    echo "Return code: $STATUS"
+    echo "============================================================"
+    echo "SUMMA SUBSET FAILED"
+    echo "============================================================"
+
+    echo "Return code : $STATUS"
+    echo "Model success message found: $MODEL_SUCCESS"
+
     echo
+    echo "Last 40 lines of SUMMA log:"
+    echo "------------------------------------------------------------"
 
     tail -40 "$LOG_FILE" || true
 
@@ -231,6 +337,17 @@ if [ "$STATUS" -ne 0 ] || [ "$MODEL_SUCCESS" != "yes" ]; then
 fi
 
 
+# ============================================================
+# SUCCESS
+# ============================================================
+
 echo
-echo "SUMMA subset completed successfully."
-echo "End: $(date)"
+echo "============================================================"
+echo "SUMMA SUBSET COMPLETED SUCCESSFULLY"
+echo "============================================================"
+
+echo "GRU start : $GRU_START"
+echo "GRU count : $GRU_COUNT"
+echo "End       : $(date)"
+
+echo "============================================================"

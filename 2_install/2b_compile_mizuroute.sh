@@ -22,14 +22,18 @@ read_control() {
 
     awk -F'|' -v key="$key" '
         /^[[:space:]]*#/ {next}
+
         NF >= 2 {
+
             left=$1
             gsub(/^[ \t]+|[ \t]+$/, "", left)
 
             if (left == key) {
+
                 right=$2
                 sub(/#.*/, "", right)
                 gsub(/^[ \t]+|[ \t]+$/, "", right)
+
                 print right
                 exit
             }
@@ -50,11 +54,15 @@ EXE_NAME="$(read_control exe_name_mizuroute)"
 
 
 if [ "$INSTALL_PATH" = "default" ]; then
+
     INSTALL_PATH="${ROOT_PATH}/installs/mizuRoute"
+
 fi
 
 
 F_MASTER="${INSTALL_PATH}/route/"
+
+EXPECTED_EXE="${F_MASTER}bin/${EXE_NAME}"
 
 
 # ============================================================
@@ -69,6 +77,7 @@ if [ ! -d "${INSTALL_PATH}/.git" ]; then
     echo "Run 2a_clone_mizuroute.sh first."
 
     exit 1
+
 fi
 
 
@@ -78,10 +87,12 @@ if [ ! -f "${F_MASTER}/build/Makefile" ]; then
     echo "${F_MASTER}/build/Makefile"
 
     exit 1
+
 fi
 
 
 cd "$INSTALL_PATH"
+
 
 ACTUAL_HASH="$(git rev-parse HEAD)"
 ACTUAL_VERSION="$(git describe --tags --always)"
@@ -94,6 +105,7 @@ if [ "$ACTUAL_HASH" != "$EXPECTED_HASH" ]; then
     echo "Actual  : $ACTUAL_HASH"
 
     exit 1
+
 fi
 
 
@@ -106,6 +118,7 @@ echo "Checking ParallelIO external..."
 
 PARALLELIO="${INSTALL_PATH}/libraries/parallelio"
 
+
 if [ ! -f "${PARALLELIO}/CMakeLists.txt" ]; then
 
     echo "ERROR: ParallelIO external not found:"
@@ -117,7 +130,9 @@ if [ ! -f "${PARALLELIO}/CMakeLists.txt" ]; then
     echo "  ./bin/git-fleximod update"
 
     exit 1
+
 fi
+
 
 PIO_VERSION="$(
     git -C "$PARALLELIO" describe --tags --always
@@ -126,6 +141,7 @@ PIO_VERSION="$(
 PIO_HASH="$(
     git -C "$PARALLELIO" rev-parse HEAD
 )"
+
 
 echo "ParallelIO version: $PIO_VERSION"
 echo "ParallelIO commit : $PIO_HASH"
@@ -141,9 +157,29 @@ if [ -z "${CONDA_PREFIX:-}" ]; then
     echo
     echo "Run:"
     echo "module load conda/base"
-    echo "conda activate nwam"
+    echo "conda activate nwam_parallel"
 
     exit 1
+
+fi
+
+
+ENV_NAME="$(basename "$CONDA_PREFIX")"
+
+
+if [ "$ENV_NAME" != "nwam_parallel" ]; then
+
+    echo "ERROR: Parallel mizuRoute must currently be compiled"
+    echo "inside the validated nwam_parallel environment."
+    echo
+    echo "Active environment:"
+    echo "  $ENV_NAME"
+    echo
+    echo "Run:"
+    echo "  conda activate nwam_parallel"
+
+    exit 1
+
 fi
 
 
@@ -152,11 +188,21 @@ fi
 # ============================================================
 
 export PATH="${CONDA_PREFIX}/bin:${PATH}"
+
 export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
 
+
+MPICC="${CONDA_PREFIX}/bin/mpicc"
+MPICXX="${CONDA_PREFIX}/bin/mpicxx"
 MPIF90="${CONDA_PREFIX}/bin/mpif90"
 MPIFORT="${CONDA_PREFIX}/bin/mpifort"
-MPICC="${CONDA_PREFIX}/bin/mpicc"
+
+
+export CC="$MPICC"
+
+if [ -x "$MPICXX" ]; then
+    export CXX="$MPICXX"
+fi
 
 
 # ============================================================
@@ -172,36 +218,90 @@ for command in \
     mpif90 \
     mpifort \
     nc-config \
-    nf-config
+    nf-config \
+    pnetcdf-config
 do
 
     if ! command -v "$command" >/dev/null 2>&1; then
 
         echo "ERROR: Required command not found:"
         echo "$command"
-        echo
-        echo "Update/activate the nwam Conda environment first."
 
         exit 1
+
     fi
 
 done
 
 
-if [ ! -x "$MPIF90" ]; then
+# ============================================================
+# VERIFY PARALLEL NETCDF STACK
+# ============================================================
 
-    echo "ERROR: Conda MPI Fortran compiler not found:"
-    echo "$MPIF90"
+echo
+echo "============================================================"
+echo "VERIFY PARALLEL NETCDF STACK"
+echo "============================================================"
+
+
+NETCDF_PARALLEL="$(
+    nc-config --has-parallel 2>/dev/null || echo no
+)"
+
+NETCDF_PARALLEL4="$(
+    nc-config --has-parallel4 2>/dev/null || echo no
+)"
+
+NETCDF_PNETCDF="$(
+    nc-config --has-pnetcdf 2>/dev/null || echo no
+)"
+
+
+echo "NetCDF parallel    : $NETCDF_PARALLEL"
+echo "NetCDF parallel4   : $NETCDF_PARALLEL4"
+echo "NetCDF PnetCDF     : $NETCDF_PNETCDF"
+echo "PnetCDF version    : $(pnetcdf-config --version)"
+
+
+if [ "$NETCDF_PARALLEL" != "yes" ]; then
+
+    echo
+    echo "ERROR: NetCDF-C does not have parallel support."
 
     exit 1
+
 fi
 
 
-# Help PIO's CMake build use the same Conda MPI installation.
-export CC="${CONDA_PREFIX}/bin/mpicc"
+if [ "$NETCDF_PARALLEL4" != "yes" ]; then
 
-if [ -x "${CONDA_PREFIX}/bin/mpicxx" ]; then
-    export CXX="${CONDA_PREFIX}/bin/mpicxx"
+    echo
+    echo "ERROR: NetCDF-C does not have parallel NetCDF-4 support."
+
+    exit 1
+
+fi
+
+
+if [ "$NETCDF_PNETCDF" != "yes" ]; then
+
+    echo
+    echo "ERROR: NetCDF-C does not report PnetCDF support."
+
+    exit 1
+
+fi
+
+
+if [ ! -f "${CONDA_PREFIX}/lib/libpnetcdf.so" ] && \
+   [ ! -f "${CONDA_PREFIX}/lib/libpnetcdf.a" ]; then
+
+    echo
+    echo "ERROR: PnetCDF library was not found under:"
+    echo "${CONDA_PREFIX}/lib"
+
+    exit 1
+
 fi
 
 
@@ -212,8 +312,7 @@ fi
 # Compiler family expected by mizuRoute Makefile.
 FC="gnu"
 
-# Actual compiler must be MPI-enabled because mizuRoute
-# v3.1.1 directly uses MPI modules.
+# Actual Fortran compiler must be MPI-enabled.
 FC_EXE="$MPIF90"
 
 MODE="fast"
@@ -221,15 +320,15 @@ MODE="fast"
 # Stand-alone NWAM configuration.
 IS_OPENMP="no"
 
-# Required for mizuRoute v3.1.1 source structure.
+# ParallelIO is required.
 IS_PIO="yes"
 
-# Timing library is not required.
+# GPTL timing library.
 IS_GPTL="yes"
 
+# Both NetCDF and PnetCDF are supplied by nwam_parallel.
 NCDF_PATH="${CONDA_PREFIX}"
-
-EXPECTED_EXE="${F_MASTER}bin/${EXE_NAME}"
+PNETCDF_PATH="${CONDA_PREFIX}"
 
 
 # ============================================================
@@ -238,7 +337,7 @@ EXPECTED_EXE="${F_MASTER}bin/${EXE_NAME}"
 
 echo
 echo "============================================================"
-echo "COMPILE MIZUROUTE"
+echo "COMPILE PARALLEL-CAPABLE MIZUROUTE"
 echo "============================================================"
 
 echo "mizuRoute version : $ACTUAL_VERSION"
@@ -261,50 +360,77 @@ echo "$MPICC"
 "$MPICC" --version | head -1
 
 echo
-echo "GNU Fortran:"
-gfortran --version | head -1
-
-echo
-echo "CMake:"
-cmake --version | head -1
+echo "MPI runtime:"
+mpirun --version | head -2
 
 echo
 echo "netCDF-C:"
 nc-config --version
+echo "Parallel    : $(nc-config --has-parallel)"
+echo "Parallel4   : $(nc-config --has-parallel4)"
+echo "PnetCDF     : $(nc-config --has-pnetcdf)"
 
 echo
 echo "netCDF-Fortran:"
 nf-config --version
 
 echo
+echo "PnetCDF:"
+pnetcdf-config --version
+
+echo
 echo "Build settings:"
-echo "MODE       = $MODE"
-echo "OpenMP     = $IS_OPENMP"
-echo "PIO        = $IS_PIO"
-echo "GPTL       = $IS_GPTL"
-echo "Executable = $EXE_NAME"
+echo "MODE          = $MODE"
+echo "OpenMP        = $IS_OPENMP"
+echo "PIO           = $IS_PIO"
+echo "GPTL          = $IS_GPTL"
+echo "NCDF_PATH     = $NCDF_PATH"
+echo "PNETCDF_PATH  = $PNETCDF_PATH"
+echo "Executable    = $EXE_NAME"
 
 
 # ============================================================
-# REMOVE PREVIOUS EXECUTABLE
+# BACK UP CURRENT WORKING EXECUTABLE
 # ============================================================
 
-if [ -e "$EXPECTED_EXE" ]; then
+if [ -x "$EXPECTED_EXE" ]; then
 
-    echo
-    echo "Removing previous executable:"
-    echo "$EXPECTED_EXE"
+    BACKUP_EXE="${F_MASTER}bin/mizuroute_serial_backup.exe"
 
-    rm -f "$EXPECTED_EXE"
+    if [ ! -e "$BACKUP_EXE" ]; then
+
+        echo
+        echo "Backing up existing working mizuRoute executable:"
+        echo "$EXPECTED_EXE"
+        echo "->"
+        echo "$BACKUP_EXE"
+
+        cp -p \
+            "$EXPECTED_EXE" \
+            "$BACKUP_EXE"
+
+    else
+
+        echo
+        echo "Existing serial backup retained:"
+        echo "$BACKUP_EXE"
+
+    fi
+
 fi
 
 
 # ============================================================
-# CLEAN PREVIOUS FAILED BUILD
+# CLEAN PREVIOUS BUILD
 # ============================================================
 
 echo
-echo "Cleaning previous mizuRoute build products..."
+echo "============================================================"
+echo "CLEAN PREVIOUS BUILD"
+echo "============================================================"
+
+
+echo "Cleaning mizuRoute objects..."
 
 make \
     -C "$F_MASTER" \
@@ -314,7 +440,7 @@ make \
     >/dev/null 2>&1 || true
 
 
-echo "Cleaning previous ParallelIO build products..."
+echo "Cleaning ParallelIO through mizuRoute Makefile..."
 
 make \
     -C "$F_MASTER" \
@@ -324,14 +450,49 @@ make \
     >/dev/null 2>&1 || true
 
 
+# ------------------------------------------------------------
+# Critical:
+# Remove old PIO CMake cache/configuration.
+#
+# Otherwise CMake can reuse the old serial-NetCDF detection.
+# Keep the piolib directory itself because the mizuRoute
+# Makefile expects it to exist.
+# ------------------------------------------------------------
+
+PIOLIB_DIR="${F_MASTER}build/lib/piolib"
+
+mkdir -p "$PIOLIB_DIR"
+
+
+echo "Removing old ParallelIO CMake configuration..."
+
+rm -rf \
+    "${PIOLIB_DIR}/CMakeCache.txt" \
+    "${PIOLIB_DIR}/CMakeFiles" \
+    "${PIOLIB_DIR}/cmake_install.cmake" \
+    "${PIOLIB_DIR}/Makefile" \
+    "${PIOLIB_DIR}/lib" \
+    "${PIOLIB_DIR}/include"
+
+
+mkdir -p \
+    "${PIOLIB_DIR}/lib" \
+    "${PIOLIB_DIR}/include"
+
+
+# Remove current executable only after backup.
+rm -f "$EXPECTED_EXE"
+
+
 # ============================================================
-# COMPILE
+# BUILD
 # ============================================================
 
 echo
 echo "============================================================"
-echo "BUILD MIZUROUTE"
+echo "BUILD MIZUROUTE + PARALLELIO"
 echo "============================================================"
+
 
 make \
     -C "$F_MASTER" \
@@ -343,13 +504,13 @@ make \
     isOpenMP="$IS_OPENMP" \
     isPIO="$IS_PIO" \
     isGPTL="$IS_GPTL" \
-    PIO_FILESYSTEM_HINTS= \
     F_MASTER="$F_MASTER" \
-    NCDF_PATH="$NCDF_PATH"
+    NCDF_PATH="$NCDF_PATH" \
+    PNETCDF_PATH="$PNETCDF_PATH"
 
 
 # ============================================================
-# VERIFY EXECUTABLE
+# VERIFY EXECUTABLE EXISTS
 # ============================================================
 
 if [ ! -x "$EXPECTED_EXE" ]; then
@@ -369,6 +530,52 @@ if [ ! -x "$EXPECTED_EXE" ]; then
         -print
 
     exit 1
+
+fi
+
+
+# ============================================================
+# VERIFY PIO CONFIGURATION
+# ============================================================
+
+PIO_CACHE="${PIOLIB_DIR}/CMakeCache.txt"
+
+
+echo
+echo "============================================================"
+echo "VERIFY PARALLELIO CONFIGURATION"
+echo "============================================================"
+
+
+if [ ! -f "$PIO_CACHE" ]; then
+
+    echo "ERROR: ParallelIO CMakeCache.txt was not created:"
+    echo "$PIO_CACHE"
+
+    exit 1
+
+fi
+
+
+echo
+echo "Relevant PIO CMake settings:"
+
+grep -Ei \
+    "pnetcdf|netcdf.*parallel|mpiio|with_pnetcdf|netcdf_path" \
+    "$PIO_CACHE" \
+    || true
+
+
+echo
+echo "Looking for PnetCDF configuration..."
+
+if ! grep -qi "pnetcdf" "$PIO_CACHE"; then
+
+    echo
+    echo "ERROR: PnetCDF does not appear in the PIO CMake cache."
+
+    exit 1
+
 fi
 
 
@@ -386,22 +593,54 @@ echo "Executable:"
 echo "$EXPECTED_EXE"
 
 echo
-echo "Executable dependencies:"
+echo "Relevant executable dependencies:"
 
-ldd "$EXPECTED_EXE" | grep -E \
-    "mpi|pio|netcdf|gfortran|quadmath|gcc" || true
+ldd "$EXPECTED_EXE" | \
+grep -Ei \
+"mpi|netcdf|hdf5|pnetcdf|gfortran|quadmath|gcc" \
+|| true
 
 
 # ============================================================
-# BASIC EXECUTABLE CHECK
+# CONFIRM ENVIRONMENT PATHS IN EXECUTABLE
+# ============================================================
+
+echo
+echo "Checking that executable resolves libraries from:"
+echo "$CONDA_PREFIX"
+
+if ldd "$EXPECTED_EXE" | grep -E \
+    "libmpi|libnetcdf|libnetcdff" | \
+    grep -v "$CONDA_PREFIX" >/dev/null
+then
+
+    echo
+    echo "WARNING:"
+    echo "One or more core libraries are not resolving from"
+    echo "the active nwam_parallel environment."
+
+    ldd "$EXPECTED_EXE" | \
+        grep -E "libmpi|libnetcdf|libnetcdff"
+
+else
+
+    echo "Core MPI/NetCDF libraries resolve from nwam_parallel: PASS"
+
+fi
+
+
+# ============================================================
+# BASIC EXECUTABLE START CHECK
 # ============================================================
 
 echo
 echo "============================================================"
-echo "MIZUROUTE EXECUTABLE CHECK"
+echo "MIZUROUTE EXECUTABLE START CHECK"
 echo "============================================================"
 
+
 CHECK_FILE="/tmp/mizuroute_check_${USER}_$$.txt"
+
 
 set +e
 
@@ -418,11 +657,11 @@ rm -f "$CHECK_FILE"
 
 
 echo
-echo "mizuRoute executable return code: $MIZU_STATUS"
+echo "mizuRoute no-argument return code: $MIZU_STATUS"
 
-# A non-zero code without a control-file argument can be normal.
-# This check primarily confirms that the executable starts and
-# that shared-library dependencies are resolved.
+echo
+echo "A non-zero return code here can be normal because no"
+echo "mizuRoute control file was supplied."
 
 
 # ============================================================
@@ -433,41 +672,75 @@ LOG_DIR="${INSTALL_PATH}/_workflow_log"
 
 mkdir -p "$LOG_DIR"
 
-LOG_FILE="${LOG_DIR}/$(date '+%Y%m%d')_compile_mizuroute.txt"
+
+LOG_FILE="${LOG_DIR}/$(date '+%Y%m%d')_compile_mizuroute_parallel.txt"
 
 
 {
-    echo "mizuRoute compilation"
+    echo "Parallel-capable mizuRoute compilation"
     echo "Date: $(date)"
+
     echo
     echo "Version: $ACTUAL_VERSION"
     echo "Commit: $ACTUAL_HASH"
+
+    echo
+    echo "Conda environment:"
+    echo "$CONDA_PREFIX"
+
     echo
     echo "Compiler family: $FC"
     echo "MPI Fortran compiler: $FC_EXE"
     "$FC_EXE" --version | head -1
+
+    echo
+    echo "MPI:"
+    mpirun --version | head -2
+
     echo
     echo "netCDF-C:"
     nc-config --version
+    echo "parallel: $(nc-config --has-parallel)"
+    echo "parallel4: $(nc-config --has-parallel4)"
+    echo "pnetcdf: $(nc-config --has-pnetcdf)"
+
     echo
     echo "netCDF-Fortran:"
     nf-config --version
+
+    echo
+    echo "PnetCDF:"
+    pnetcdf-config --version
+
     echo
     echo "MODE: $MODE"
     echo "OpenMP: $IS_OPENMP"
     echo "PIO: $IS_PIO"
     echo "GPTL: $IS_GPTL"
+    echo "NCDF_PATH: $NCDF_PATH"
+    echo "PNETCDF_PATH: $PNETCDF_PATH"
+
     echo
     echo "Executable:"
     echo "$EXPECTED_EXE"
+
     echo
     echo "Dependencies:"
     ldd "$EXPECTED_EXE" || true
 
+    echo
+    echo "ParallelIO CMake settings:"
+    grep -Ei \
+        "pnetcdf|netcdf.*parallel|mpiio|with_pnetcdf|netcdf_path" \
+        "$PIO_CACHE" \
+        || true
+
 } > "$LOG_FILE"
 
 
-cp "${SCRIPT_DIR}/2b_compile_mizuroute.sh" "$LOG_DIR/"
+cp \
+    "${SCRIPT_DIR}/2b_compile_mizuroute.sh" \
+    "$LOG_DIR/"
 
 
 # ============================================================
@@ -476,17 +749,28 @@ cp "${SCRIPT_DIR}/2b_compile_mizuroute.sh" "$LOG_DIR/"
 
 echo
 echo "============================================================"
-echo "MIZUROUTE INSTALLATION COMPLETE"
+echo "PARALLEL-CAPABLE MIZUROUTE INSTALLATION COMPLETE"
 echo "============================================================"
 
-echo "Version    : $ACTUAL_VERSION"
-echo "Commit     : $ACTUAL_HASH"
-echo "Compiler   : $FC_EXE"
-echo "Mode       : $MODE"
-echo "OpenMP     : $IS_OPENMP"
-echo "PIO        : $IS_PIO"
-echo "GPTL       : $IS_GPTL"
-echo "Executable : $EXPECTED_EXE"
-echo "Log        : $LOG_FILE"
+echo "Version       : $ACTUAL_VERSION"
+echo "Commit        : $ACTUAL_HASH"
+echo "Environment   : $ENV_NAME"
+echo "Compiler      : $FC_EXE"
+echo "Mode          : $MODE"
+echo "OpenMP        : $IS_OPENMP"
+echo "PIO           : $IS_PIO"
+echo "GPTL          : $IS_GPTL"
+echo "NetCDF MPI    : $NETCDF_PARALLEL"
+echo "NetCDF-4 MPI  : $NETCDF_PARALLEL4"
+echo "PnetCDF       : $NETCDF_PNETCDF"
+echo "Executable    : $EXPECTED_EXE"
+echo "Serial backup : ${F_MASTER}bin/mizuroute_serial_backup.exe"
+echo "Log           : $LOG_FILE"
+
+echo
+echo "IMPORTANT:"
+echo "Compilation success does NOT yet prove correct multi-rank"
+echo "mizuRoute output. Next test with 1, 2, and 4 MPI ranks and"
+echo "run the strict yearly NetCDF QA before changing Stage 6."
 
 echo "============================================================"

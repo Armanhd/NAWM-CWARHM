@@ -1,0 +1,77 @@
+name: nwam_parallel
+
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.10
+
+  # ==========================================================
+  # Scientific Python
+  # ==========================================================
+  - numpy
+  - pandas
+  - scipy
+
+  # ==========================================================
+  # Parallel NetCDF / HDF5 stack
+  # ==========================================================
+  - xarray
+  - cftime
+  - h5netcdf
+
+  # Force the OpenMPI variants rather than Conda's preferred
+  # nompi variants.
+  - hdf5=*=mpi_openmpi_*
+  - libnetcdf=*=mpi_openmpi_*
+  - netcdf-fortran=*=mpi_openmpi_*
+  - libpnetcdf=*=mpi_openmpi_*
+
+  # Python NetCDF interface.
+  - netcdf4
+
+  # ==========================================================
+  # Geospatial
+  # ==========================================================
+  - geopandas
+  - shapely
+  - pyproj
+  - rasterio
+  - rasterstats
+  - fiona
+  - pyshp
+  - rtree
+  - gdal
+  - libgdal-hdf4
+  - hdf4
+
+  # ==========================================================
+  # SUMMA / mizuRoute compilation
+  # ==========================================================
+  - cmake
+  - make
+  - gcc
+  - gfortran
+  - openblas
+  - lapack
+
+  # ==========================================================
+  # MPI
+  # ==========================================================
+  - openmpi
+  - mpi4py
+
+  # ==========================================================
+  # Utilities
+  # ==========================================================
+  - matplotlib
+  - tqdm
+  - requests
+  - gitpython
+  - pip
+
+  # ==========================================================
+  # CWARHM / EASYMORE
+  # ==========================================================
+  - pip:
+      - easymore
