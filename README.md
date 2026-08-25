@@ -20,7 +20,7 @@ The original CWARHM repository should be consulted for the conceptual basis of t
 
 The NAWM version retains the fundamental CWARHM architecture and continues to use **SUMMA for hydrological simulation and mizuRoute for river-network routing**. The main modifications concern how model domains, geospatial parameters, meteorological forcing, model inputs, and simulations are prepared and executed.
 
-The changes are designed to support repeated model configuration across MERIT-Basins domains using shared datasets and high-performance computing resources on the University of Calgary ARC cluster.
+The changes are designed to support repeated model configuration across MERIT-Basins domains using shared datasets and high-performance computing resources on the University of Calgary ARC cluster or other HPCs.
 
 ## Summary of major modifications
 
