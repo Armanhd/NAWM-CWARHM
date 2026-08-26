@@ -162,28 +162,32 @@ domain_name = read_from_control(
 # RIVER NETWORK SHAPEFILE
 # ============================================================
 
-river_network_path = read_from_control(
-    CONTROL_FILE,
-    "river_network_shp_path"
-)
-
 river_network_name = read_from_control(
     CONTROL_FILE,
     "river_network_shp_name"
 )
 
-if river_network_path == "default":
+# Stage 00 creates the prepared river-network working copy
+# inside the active domain.
+#
+# Stage 5 must use this prepared copy rather than the raw
+# source river-network path from control_active.txt because
+# Stage 00 adds standardized fields required by downstream
+# workflow steps, including:
+#
+#   length_m
+#
+# The raw MERIT source generally contains lengthkm, while the
+# prepared domain copy contains:
+#
+#   length_m = lengthkm * 1000
+#
+# This mirrors the handling of the prepared routing-basin /
+# catchment shapefile below.
 
-    river_network_path = make_default_path(
-        "shapefiles/river_network"
-    )
-
-else:
-
-    river_network_path = Path(
-        river_network_path
-    )
-
+river_network_path = make_default_path(
+    "shapefiles/river_network"
+)
 
 river_file = (
     river_network_path
