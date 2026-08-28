@@ -12,10 +12,18 @@
 #   - ignores soil class 0 when selecting the dominant valid class
 #   - uses the dominant non-zero soil class as soilTypeIndex
 #   - uses the lowest class number to break an exact count tie
-#   - fails if an HRU has no valid non-zero soil-class pixels
+#   - assigns a documented fallback soil class when an HRU has
+#     no valid non-zero soil-class pixels
 #
 # Soil class 0 is not written to SUMMA. It represents an
 # unclassified/no-soil category in the current processed raster.
+#
+# If an HRU contains no valid non-zero soil-class pixels, SUMMA
+# still requires a valid positive soilTypeIndex. In that case,
+# soil class 1 is assigned explicitly as the fallback. This
+# reproduces the effective fallback behaviour of the original
+# CWARHM implementation, but makes the fallback explicit,
+# traceable, and reportable.
 #
 # HRU order is not inferred from the shapefile. attributes.nc is
 # authoritative, preserving the forcing-derived HRU order.
@@ -28,6 +36,20 @@ import re
 import geopandas as gpd
 import netCDF4 as nc4
 import numpy as np
+
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+# SUMMA requires a valid positive soilTypeIndex.
+#
+# Use class 1 when the soil histogram contains no valid
+# non-zero soil-class pixels. Keeping this as an explicit
+# constant makes the assumption visible and easy to revise
+# in the future if the SUMMA soil parameterization changes.
+
+FALLBACK_SOIL_CLASS = 1
 
 
 # ============================================================
@@ -261,22 +283,25 @@ valid_classes = [
 ]
 
 
-if not valid_classes:
-    raise RuntimeError(
-        "No non-zero soil classes are available."
-    )
+# It is acceptable for a domain to contain no observed
+# non-zero soil classes. Such HRUs will receive the explicit
+# fallback soil class below.
+#
+# Therefore, do NOT fail here simply because valid_classes
+# is empty.
 
 
 print()
 print("============================================================")
 print("INSERT SOIL CLASS INTO ATTRIBUTES")
 print("============================================================")
-print(f"Domain      : {domain_name}")
-print(f"Input       : {intersect_file}")
-print(f"Attributes  : {attribute_file}")
-print(f"HRU field   : {hru_field}")
-print(f"Classes     : {all_classes}")
-print(f"Valid SUMMA : {valid_classes}")
+print(f"Domain         : {domain_name}")
+print(f"Input          : {intersect_file}")
+print(f"Attributes     : {attribute_file}")
+print(f"HRU field      : {hru_field}")
+print(f"Classes        : {all_classes}")
+print(f"Valid SUMMA    : {valid_classes}")
+print(f"Fallback class : {FALLBACK_SOIL_CLASS}")
 
 
 # Build HRU -> row mapping.
@@ -292,6 +317,8 @@ shp = shp.set_index(
 # ============================================================
 
 selected_classes = []
+
+fallback_hrus = []
 
 
 with nc4.Dataset(
@@ -374,29 +401,57 @@ with nc4.Dataset(
             )
 
 
-        if counts.sum() <= 0:
+        # ----------------------------------------------------
+        # SELECT SOIL CLASS
+        # ----------------------------------------------------
+        #
+        # Normal case:
+        # At least one valid non-zero soil class is present.
+        # Select the dominant class.
+        #
+        # Fallback case:
+        # No valid non-zero soil-class pixels are available.
+        # Assign the explicit SUMMA fallback class.
 
-            raise RuntimeError(
-                f"HRU {hru} has no valid non-zero "
-                "soil-class pixels."
+        if (
+            len(counts) == 0
+            or counts.sum() <= 0
+        ):
+
+            soil_class = FALLBACK_SOIL_CLASS
+
+            fallback_hrus.append(
+                int(hru)
             )
 
-
-        # valid_classes is sorted, so np.argmax
-        # deterministically selects the lowest class
-        # number if there is an exact tie.
-
-        dominant_index = int(
-            np.argmax(
-                counts
+            print(
+                f"HRU {int(hru)}: "
+                "no valid non-zero soil pixels -> "
+                f"fallback soilTypeIndex = {soil_class}"
             )
-        )
 
-        soil_class = int(
-            valid_classes[
-                dominant_index
-            ]
-        )
+        else:
+
+            # valid_classes is sorted, so np.argmax
+            # deterministically selects the lowest class
+            # number if there is an exact tie.
+
+            dominant_index = int(
+                np.argmax(
+                    counts
+                )
+            )
+
+            soil_class = int(
+                valid_classes[
+                    dominant_index
+                ]
+            )
+
+            print(
+                f"HRU {int(hru)}: "
+                f"soilTypeIndex = {soil_class}"
+            )
 
 
         att[
@@ -406,12 +461,6 @@ with nc4.Dataset(
 
         selected_classes.append(
             soil_class
-        )
-
-
-        print(
-            f"HRU {int(hru)}: "
-            f"soilTypeIndex = {soil_class}"
         )
 
 
@@ -438,7 +487,37 @@ if np.any(
     )
 
 
+normal_count = (
+    len(selected_classes)
+    - len(fallback_hrus)
+)
+
+
 print()
+print("============================================================")
+print("SOIL CLASS SUMMARY")
+print("============================================================")
+
+print(
+    f"HRUs processed       : "
+    f"{len(selected_classes)}"
+)
+
+print(
+    f"Normal assignments   : "
+    f"{normal_count}"
+)
+
+print(
+    f"Fallback assignments : "
+    f"{len(fallback_hrus)}"
+)
+
+print(
+    f"Fallback soil class  : "
+    f"{FALLBACK_SOIL_CLASS}"
+)
+
 print(
     "Selected soil classes:",
     sorted(
@@ -447,6 +526,14 @@ print(
         )
     )
 )
+
+
+if fallback_hrus:
+
+    print(
+        "Fallback HRUs        : "
+        f"{fallback_hrus}"
+    )
 
 
 # ============================================================
@@ -504,6 +591,31 @@ with open(
     )
 
     file.write(
+        f"Fallback soil class: "
+        f"{FALLBACK_SOIL_CLASS}\n"
+    )
+
+    file.write(
+        f"HRUs processed: "
+        f"{len(selected_classes)}\n"
+    )
+
+    file.write(
+        f"Normal assignments: "
+        f"{normal_count}\n"
+    )
+
+    file.write(
+        f"Fallback assignments: "
+        f"{len(fallback_hrus)}\n"
+    )
+
+    file.write(
+        f"Fallback HRUs: "
+        f"{fallback_hrus}\n"
+    )
+
+    file.write(
         f"Selected soil classes: "
         f"{sorted(set(selected_classes))}\n"
     )
@@ -511,3 +623,4 @@ with open(
 
 print()
 print("Soil classes inserted successfully.")
+print(f"Workflow log: {log_file}")
