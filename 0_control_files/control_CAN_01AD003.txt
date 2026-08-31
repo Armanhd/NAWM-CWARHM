@@ -1,0 +1,325 @@
+# CWARHM-SUMMA workflow setting file.
+# Characters '|' and '#' are used as separators.
+# Text after '|' is the setting value unless followed by '#'.
+
+# =====================================================================
+# Modeling domain settings
+# =====================================================================
+
+root_path                   | /work/comphyd_lab/users/arman.haddadchi/NWAM/NWAM_Data
+domain_name                         | CAN_01AD003
+
+
+# =====================================================================
+# Shapefile settings - SUMMA catchment file
+# =====================================================================
+
+catchment_shp_path                  | /work/comphyd_lab/users/arman.haddadchi/CENTURY_Basins/CAN_01AD003/shapefiles/catchment
+catchment_shp_name                  | CAN_01AD003_distributed_basin.shp
+catchment_shp_gruid                 | GRU_ID
+catchment_shp_hruid                 | HRU_ID
+catchment_shp_area                  | HRU_area
+catchment_shp_lat                   | center_lat
+catchment_shp_lon                   | center_lon
+
+
+# =====================================================================
+# Shapefile settings - mizuRoute river network file
+# =====================================================================
+
+river_network_shp_path              | /work/comphyd_lab/users/arman.haddadchi/CENTURY_Basins/CAN_01AD003/shapefiles/river_network
+river_network_shp_name              | CAN_01AD003_distributed_river.shp
+river_network_shp_segid             | COMID
+river_network_shp_downsegid         | NextDownID
+river_network_shp_slope             | slope
+river_network_shp_length_source     | new_len_km
+river_network_shp_length            | length_m
+
+
+# =====================================================================
+# Shapefile settings - mizuRoute routing-basin file
+# =====================================================================
+
+river_basin_shp_path                | /work/comphyd_lab/users/arman.haddadchi/CENTURY_Basins/CAN_01AD003/shapefiles/river_basins
+river_basin_shp_name                | CAN_01AD003_distributed_basin.shp
+river_basin_shp_rm_hruid            | COMID
+river_basin_shp_area                | area
+river_basin_shp_hru_to_seg          | hru_to_seg
+
+
+# =====================================================================
+# SUMMA-to-mizuRoute remapping
+# =====================================================================
+
+river_basin_needs_remap             | no
+
+
+# =====================================================================
+# Installation settings
+# =====================================================================
+
+github_summa                | https://github.com/CH-Earth/summa
+github_mizuroute            | https://github.com/ESCOMP/mizuRoute
+
+summa_version               | v4.0.0-exp-sundials.2
+summa_git_hash              | cb78b94040ee9d33bb6d6f16677ae0ac30c3b491
+sundials_version            | v7.1.1
+
+mizuroute_version           | v3.1.1
+mizuroute_git_hash          | 28514dea3fd28a2f820c7ecaa9014f820c1bb220
+
+install_path_summa          | default
+install_path_mizuroute      | default
+
+exe_name_summa              | summa.exe
+exe_name_mizuroute          | mizuroute.exe
+
+
+# =====================================================================
+# Forcing settings
+# =====================================================================
+
+# Shared forcing archive coverage.
+forcing_raw_time            | 1950,2019
+
+# LAT_MAX/LON_MIN/LAT_MIN/LON_MAX
+forcing_raw_space            | 47.887917/-69.514583/47.144583/-68.899583
+
+forcing_time_step_size      | 3600
+forcing_measurement_height  | 3
+
+# Shared ARC forcing archives.
+forcing_emearth_path        | /work/comphyd_lab/data/meteorological-data/EM_Earth_v1/deterministic_hourly
+forcing_era5_path           | /work/comphyd_lab/data/meteorological-data/era5
+
+# Forcing-grid shapefiles used for EASYMORE.
+forcing_shape_path          | default
+
+# Legacy CWARHM setting retained for compatibility.
+forcing_shape_name          | ERA5_grid.shp
+
+# NWAM-specific forcing grids.
+forcing_emearth_shape_name  | EM_Earth_grid.shp
+forcing_era5_shape_name     | ERA5_grid.shp
+
+# Attribute names stored in the forcing-grid shapefiles.
+forcing_shape_lat_name      | lat
+forcing_shape_lon_name      | lon
+
+# Forcing workflow paths.
+forcing_geo_path            | default
+forcing_raw_path            | default
+forcing_merged_path         | default
+forcing_easymore_path       | default
+forcing_basin_avg_path      | default
+forcing_summa_path          | default
+
+
+# =====================================================================
+# Parameter settings - MERIT Hydro DEM
+# =====================================================================
+
+parameter_dem_main_url      | http://hydro.iis.u-tokyo.ac.jp/~yamadai/MERIT_Hydro/distribute/v1.0.1/
+parameter_dem_file_template | elv_{}{}.tar
+
+parameter_dem_raw_path      | default
+parameter_dem_unpack_path   | default
+parameter_dem_vrt1_path     | default
+parameter_dem_vrt2_path     | default
+parameter_dem_tif_path      | default
+
+parameter_dem_tif_name      | elevation.tif
+
+
+# =====================================================================
+# Parameter settings - soil
+# =====================================================================
+
+parameter_soil_hydro_ID     | 1361509511e44adfba814f6950c6e742
+
+parameter_soil_raw_path             | /work/comphyd_lab/data/geospatial-data/soil_classes
+
+# Shared ARC soil-class product.
+parameter_soil_domain_path          | default
+parameter_soil_tif_name     | soil_classes.tif
+
+
+# =====================================================================
+# Parameter settings - MODIS land cover
+# =====================================================================
+
+parameter_land_list_path    | default
+parameter_land_list_name    | daac_mcd12q1_data_links.txt
+
+# Shared ARC MODIS MCD12Q1.061 collection.
+parameter_land_raw_path     | /work/comphyd_lab/data/geospatial-data/MODIS/MCD12Q1.061/2022.01.01
+
+parameter_land_vrt1_path    | default
+parameter_land_vrt2_path    | default
+parameter_land_vrt3_path    | default
+parameter_land_vrt4_path    | default
+parameter_land_tif_path     | default
+parameter_land_mode_path    | default
+
+parameter_land_tif_name     | land_classes.tif
+
+
+# =====================================================================
+# Intersection settings
+# =====================================================================
+
+intersect_dem_path          | default
+intersect_dem_name          | catchment_with_merit_dem.shp
+
+intersect_soil_path         | default
+intersect_soil_name         | catchment_with_soilgrids.shp
+
+intersect_land_path         | default
+intersect_land_name         | catchment_with_modis.shp
+
+intersect_forcing_path      | default
+
+intersect_routing_path      | default
+intersect_routing_name      | catchment_with_routing_basins.shp
+
+
+# =====================================================================
+# Experiment settings - general
+# =====================================================================
+
+experiment_id               | run1
+
+# 'default' uses the complete forcing_raw_time period.
+experiment_time_start       | default
+experiment_time_end         | default
+
+experiment_output_summa     | default
+experiment_output_mizuRoute | default
+
+experiment_log_summa        | default
+experiment_log_mizuroute    | default
+
+experiment_backup_settings  | yes
+
+
+# =====================================================================
+# Experiment settings - SUMMA
+# =====================================================================
+
+settings_summa_path         | default
+
+settings_summa_filemanager  | fileManager.txt
+settings_summa_coldstate    | coldState.nc
+settings_summa_trialParams  | trialParams.nc
+settings_summa_forcing_list | forcingFileList.txt
+settings_summa_attributes   | attributes.nc
+
+settings_summa_connect_HRUs | no
+
+settings_summa_trialParam_n | 1
+settings_summa_trialParam_1 | maxstep,900
+
+
+# =====================================================================
+# Experiment settings - mizuRoute
+# =====================================================================
+
+settings_mizu_path          | default
+
+settings_mizu_parameters    | param.nml.default
+settings_mizu_topology      | topology.nc
+settings_mizu_remap         | routing_remap.nc
+settings_mizu_control_file  | mizuroute.control
+
+settings_mizu_routing_var   | averageRoutedRunoff
+settings_mizu_routing_units | m/s
+settings_mizu_routing_dt    | 3600
+
+settings_mizu_output_freq   | yearly
+settings_mizu_output_vars   | 2
+settings_mizu_within_basin  | 0
+
+# IMPORTANT:
+# Replace this placeholder with the actual outlet COMID reported by
+# 00_prepare_domain_shapefiles/3_report_control_values.py.
+settings_mizu_make_outlet    | n/a
+
+
+# =====================================================================
+# Postprocessing settings
+# =====================================================================
+
+visualization_folder        | default
+
+- CWARHM_data
+   |
+   |_ domain_BowAtBanff
+   |   |
+   |   |_ forcing
+   |   |   |_ 0_geopotential
+   |   |   |_ 1_raw_data
+   |   |   |_ 2_merged_data
+   |   |   |_ 3_basin_averaged_data
+   |   |   |_ 4_SUMMA_input
+   |   |
+   |   |_ parameters
+   |   |   |_ soilclass
+   |   |   |   |_ 1_soil_classes_global
+   |   |   |   |_ 2_soil_classes_domain
+   |   |   |   
+   |   |   |_ landclass
+   |   |   |   |_ 1_MODIS_raw_data
+   |   |   |   |_ 2_vrt_native_crs
+   |   |   |   |_ 3_vrt_epsg_4326
+   |   |   |   |_ 4_domain_vrt_epsg_4326
+   |   |   |   |_ 5_multiband_domain_vrt_epsg_4326
+   |   |   |   |_ 6_tif_multiband
+   |   |   |   |_ 7_mode_land_class
+   |   |   |   
+   |   |   |_ dem
+   |   |       |_ 1_MERIT_hydro_raw_data
+   |   |       |_ 2_MERIT_hydro_unpacked_data
+   |   |       |_ 3_vrt
+   |   |       |_ 4_domain_vrt
+   |   |       |_ 5_elevation
+   |   |
+   |   |_ settings
+   |   |   |_ mizuRoute
+   |   |   |_ SUMMA
+   |   |
+   |   |_ shapefiles
+   |   |   |_ catchment
+   |   |   |_ catchment_intersection
+   |   |   |   |_ with_dem
+   |   |   |   |_ with_forcing
+   |   |   |   |_ with_soil
+   |   |   |   |_ with_veg
+   |   |   |_ forcing
+   |   |   |_ river_basins
+   |   |   |_ river_network
+   |   |
+   |   |_ simulations
+   |   |   |_run1
+   |   |   |  |_ 0_settings_backup
+   |   |   |  |   |_ summa
+   |   |   |  |   |_ mizuRoute
+   |   |   |  |_ summa
+   |   |   |  |   |_run_settings
+   |   |   |  |   |_SUMMA_logs
+   |   |   |  |_ mizuRoute
+   |   |   |  |   |_run_settings
+   |   |   |  |   |_mizuRoute_logs
+   |   |   |_run2
+   |   |      |_ ...
+   |   |
+   |   |_ visualization
+   |
+   |_ domain_global
+   |   |_ ...
+   |
+   |_ domain_northAmerica
+   |   |_ ...
+   |
+   |_ installs
+       |_ mizuRoute
+       |_ SUMMA

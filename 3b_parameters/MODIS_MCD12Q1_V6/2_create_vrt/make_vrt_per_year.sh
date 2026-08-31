@@ -1,95 +1,323 @@
 #!/bin/bash
+set -euo pipefail
 
-# Make a virtual dataset (VRT) for each year of MODIS data, for easier data handling.
-# First creates .txt files that contain the names of .h5 files per year, then creates separate VRTs for each year.
+# Create one MODIS MCD12Q1 VRT for each configured year.
+#
+# Usage:
+#
+# bash make_vrt_per_year.sh \
+# /path/to/control_DOMAIN.txt
+#
+# IMPORTANT
+# ---------
+# This multibasin version does NOT use control_active.txt.
+# The domain-specific control file must be passed explicitly.
+#
+# MODIS MCD12Q1 is stored as HDF4. Therefore this script must
+# be run with a GDAL installation that supports HDF4.
+#
+# On ARC, the NWAM Conda environment provides the required
+# GDAL/HDF4 support. Do not load the ARC lib/gdal module for
+# this step if it overrides the Conda GDAL installation.
 
-# load gdal
-#module load gdal/3.0.4
 
+# ============================================================
+# INPUT CONTROL FILE
+# ============================================================
 
-#---------------------------------
-# Specify settings
-#---------------------------------
+if [ "$#" -ne 1 ]; then
 
-# --- Location of raw data
-dest_line=$(grep -m 1 "^parameter_land_raw_path" ../../../0_control_files/control_active.txt) # full settings line
-source_path=$(echo ${dest_line##*|})   # removing the leading text up to '|'
-source_path=$(echo ${source_path%%#*}) # removing the trailing comments, if any are present
-
-# Specify the default path if needed
-if [ "$source_path" = "default" ]; then
-  
- # Get the root path and append the appropriate install directories
- root_line=$(grep -m 1 "^root_path" ../../../0_control_files/control_active.txt)
- root_path=$(echo ${root_line##*|}) 
- root_path=$(echo ${root_path%%#*})
-
- # domain name
- domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
- domain_name=$(echo ${domain_line##*|}) 
- domain_name=$(echo ${domain_name%%#*})
- 
- # source path
- source_path="${root_path}/domain_${domain_name}/parameters/landclass/1_MODIS_raw_data"
+    echo "Usage:"
+    echo
+    echo "bash make_vrt_per_year.sh /path/to/control_DOMAIN.txt"
+    echo
+    exit 1
 
 fi
 
 
-# --- Location where converted data needs to go
-dest_line=$(grep -m 1 "^parameter_land_vrt1_path" ../../../0_control_files/control_active.txt) # full settings line
-dest_path=$(echo ${dest_line##*|})   # removing the leading text up to '|'
-dest_path=$(echo ${dest_path%%#*}) # removing the trailing comments, if any are present
+CONTROL_FILE=$(realpath "$1")
 
-# Specify the default path if needed
-if [ "$dest_path" = "default" ]; then
-  
- # Get the root path and append the appropriate install directories
- root_line=$(grep -m 1 "^root_path" ../../../0_control_files/control_active.txt)
- root_path=$(echo ${root_line##*|}) 
- root_path=$(echo ${root_path%%#*})
 
- # domain name
- domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
- domain_name=$(echo ${domain_line##*|}) 
- domain_name=$(echo ${domain_name%%#*})
- 
- # destination path
- dest_path="${root_path}/domain_${domain_name}/parameters/landclass/2_vrt_native_crs"
+if [ ! -f "$CONTROL_FILE" ]; then
+
+    echo "ERROR: Control file not found:"
+    echo "$CONTROL_FILE"
+
+    exit 1
+
 fi
 
-# Make destination directory 
-mkdir -p "${dest_path}/filelists"
 
-# ---------------------------
-# Check if GDAL supports HDF4
-# ---------------------------
-hdf4_check=$(gdalinfo --formats | grep 'HDF4')
-if [[ $hdf4_check != *'HDF4'* ]]; then
- echo "No HDF4 support found in the active GDAL installation."
- exit 1
-fi
+# ============================================================
+# CONTROL-FILE READER
+# ============================================================
 
-#---------------------------------
-# Make the VRTs
-#---------------------------------
+read_control() {
 
-# Loop over the years and create a .txt file that we can use as input for gdalbuildvrt
-# Note that our variable of interest (MCD12Q1:LC_Type1) is stored in sub dataset 1 (-sd 1)
-# Loop over available MODIS year(s)
-for YEAR in 2022
-do
-    OUTTXT="${dest_path}/filelists/MCD12Q1_filelist_${YEAR}.txt"
+    local setting="$1"
+    local value
 
-    ls "$source_path"/MCD12Q1.A${YEAR}*.hdf > "$OUTTXT"
+    value=$(
+        grep -m 1 "^${setting}[[:space:]]*|" "$CONTROL_FILE" \
+        | cut -d'|' -f2- \
+        | cut -d'#' -f1 \
+        | xargs
+    )
 
-    if [ ! -s "$OUTTXT" ]; then
-        echo "No MODIS HDF files found for ${YEAR}"
-        continue
+    if [ -z "$value" ]; then
+
+        echo "ERROR: Setting not found or empty: $setting" >&2
+
+        exit 1
+
     fi
 
-    echo "MODIS files found for ${YEAR}: $(wc -l < "$OUTTXT")"
+    echo "$value"
+}
+
+
+# ============================================================
+# DOMAIN SETTINGS
+# ============================================================
+
+root_path=$(read_control "root_path")
+
+domain_name=$(read_control "domain_name")
+
+
+domain_path="${root_path}/domain_${domain_name}"
+
+
+# ============================================================
+# SOURCE MODIS DATA
+# ============================================================
+
+source_path=$(read_control "parameter_land_raw_path")
+
+
+if [ "$source_path" = "default" ]; then
+
+    source_path="${domain_path}/parameters/landclass/1_MODIS_raw_data"
+
+fi
+
+
+if [ ! -d "$source_path" ]; then
+
+    echo "ERROR: MODIS raw-data directory not found:"
+    echo "$source_path"
+
+    exit 1
+
+fi
+
+
+# ============================================================
+# OUTPUT VRT DIRECTORY
+# ============================================================
+
+dest_path=$(read_control "parameter_land_vrt1_path")
+
+
+if [ "$dest_path" = "default" ]; then
+
+    dest_path="${domain_path}/parameters/landclass/2_vrt_native_crs"
+
+fi
+
+
+mkdir -p "${dest_path}/filelists"
+
+
+# ============================================================
+# CHECK GDAL
+# ============================================================
+
+if ! command -v gdalinfo >/dev/null 2>&1; then
+
+    echo "ERROR: gdalinfo not found."
+    echo
+    echo "Activate the NWAM Conda environment before running this script:"
+    echo
+    echo "    conda activate nwam"
+    echo
+
+    exit 1
+
+fi
+
+
+if ! command -v gdalbuildvrt >/dev/null 2>&1; then
+
+    echo "ERROR: gdalbuildvrt not found."
+    echo
+    echo "Activate the NWAM Conda environment before running this script:"
+    echo
+    echo "    conda activate nwam"
+    echo
+
+    exit 1
+
+fi
+
+
+# ============================================================
+# CHECK HDF4 SUPPORT
+# ============================================================
+
+# Capture the complete format list first.
+# Do not pipe gdalinfo directly into grep -q while pipefail is active,
+# because grep -q can terminate early and cause gdalinfo to receive
+# SIGPIPE, making the pipeline appear to fail.
+
+GDAL_FORMATS=$(gdalinfo --formats 2>/dev/null)
+
+if ! grep -q "HDF4" <<< "$GDAL_FORMATS"; then
+
+    echo
+    echo "ERROR: The active GDAL installation does not support HDF4."
+    echo
+    echo "Current gdalinfo:"
+    command -v gdalinfo || true
+    echo
+    echo "GDAL version:"
+    gdalinfo --version || true
+    echo
+    echo "MODIS MCD12Q1 requires HDF4 support."
+    echo
+
+    exit 1
+
+fi
+
+
+# ============================================================
+# MODIS YEARS
+# ============================================================
+
+# Current NWAM workflow uses the 2022 MCD12Q1 land-cover map.
+#
+# Keep this as an explicit data/model assumption for now.
+#
+# If additional years are needed later, add them here, for example:
+#
+# MODIS_YEARS=(2020 2021 2022)
+
+MODIS_YEARS=(2022)
+
+
+# ============================================================
+# REPORT
+# ============================================================
+
+echo
+
+echo "======================================================================"
+echo "CREATE MODIS MCD12Q1 YEARLY VRT"
+echo "======================================================================"
+
+echo
+
+echo "Domain       : $domain_name"
+echo "Control file : $CONTROL_FILE"
+
+echo "Source       : $source_path"
+
+echo "Destination  : $dest_path"
+
+echo "MODIS years  : ${MODIS_YEARS[*]}"
+
+echo "GDAL         : $(command -v gdalinfo)"
+
+echo "GDAL version : $(gdalinfo --version)"
+
+echo
+
+echo "HDF4 support : available"
+
+echo
+
+
+# ============================================================
+# CREATE YEARLY VRT FILES
+# ============================================================
+
+created_count=0
+
+
+for YEAR in "${MODIS_YEARS[@]}"; do
+
+    OUTTXT="${dest_path}/filelists/MCD12Q1_filelist_${YEAR}.txt"
 
     OUTVRT="${dest_path}/MCD12Q1_${YEAR}.vrt"
+
+
+    # --------------------------------------------------------
+    # FIND HDF FILES
+    # --------------------------------------------------------
+
+    find "$source_path" \
+        -maxdepth 1 \
+        -type f \
+        -name "MCD12Q1.A${YEAR}*.hdf" \
+        | sort \
+        > "$OUTTXT"
+
+
+    FILE_COUNT=$(wc -l < "$OUTTXT")
+
+    FILE_COUNT=$(echo "$FILE_COUNT" | xargs)
+
+
+    if [ "$FILE_COUNT" -eq 0 ]; then
+
+        echo "ERROR: No MODIS HDF files found for ${YEAR}:"
+
+        echo "$source_path"
+
+        exit 1
+
+    fi
+
+
+    echo "----------------------------------------------------------------------"
+
+    echo "Year ${YEAR}"
+
+    echo "----------------------------------------------------------------------"
+
+    echo "HDF files : $FILE_COUNT"
+
+    echo "File list : $OUTTXT"
+
+    echo "Output VRT: $OUTVRT"
+
+    echo
+
+
+    # --------------------------------------------------------
+    # REMOVE OLD OUTPUT
+    # --------------------------------------------------------
+
+    if [ -e "$OUTVRT" ]; then
+
+        echo "Removing existing VRT:"
+
+        echo "$OUTVRT"
+
+        rm -f "$OUTVRT"
+
+        echo
+
+    fi
+
+
+    # --------------------------------------------------------
+    # BUILD VRT
+    #
+    # MCD12Q1 LC_Type1 is subdataset 1 in the current files.
+    # --------------------------------------------------------
 
     gdalbuildvrt \
         "$OUTVRT" \
@@ -97,26 +325,106 @@ do
         -sd 1 \
         -resolution highest
 
-    echo "Created: $OUTVRT"
+
+    # --------------------------------------------------------
+    # VERIFY OUTPUT
+    # --------------------------------------------------------
+
+    if [ ! -s "$OUTVRT" ]; then
+
+        echo "ERROR: VRT was not created:"
+
+        echo "$OUTVRT"
+
+        exit 1
+
+    fi
+
+
+    if ! gdalinfo "$OUTVRT" >/dev/null 2>&1; then
+
+        echo "ERROR: GDAL cannot read the generated VRT:"
+
+        echo "$OUTVRT"
+
+        exit 1
+
+    fi
+
+
+    created_count=$((created_count + 1))
+
+
+    echo
+
+    echo "Created successfully:"
+
+    echo "$OUTVRT"
+
+    echo
+
 done
 
 
-#---------------------------------
-# Code provenance
-#---------------------------------
-# Generates a basic log file in the domain folder and copies the control file and itself there.
-# Make a log directory if it doesn't exist
+# ============================================================
+# WORKFLOW LOG
+# ============================================================
+
 log_path="${dest_path}/_workflow_log"
-mkdir -p $log_path
 
-# Log filename
-today=`date '+%F'`
-log_file="${today}_compile_log.txt"
+mkdir -p "$log_path"
 
-# Make the log
-this_file='make_vrt_per_year.sh'
-echo "Log generated by ${this_file} on `date '+%F %H:%M:%S'`"  > $log_path/$log_file # 1st line, store in new file
-echo 'Created Virtual Datasets from MODIS .hdf data for each year of record.' >> $log_path/$log_file # 2nd line, append to existing file
 
-# Copy this file to log directory
-cp $this_file $log_path
+timestamp=$(date '+%Y%m%d_%H%M%S')
+
+
+log_file="${log_path}/${timestamp}_create_modis_yearly_vrt.txt"
+
+
+this_file=$(basename "$0")
+
+
+{
+    echo "Log generated by ${this_file} on $(date '+%F %H:%M:%S')"
+
+    echo "Domain: ${domain_name}"
+
+    echo "Control file: ${CONTROL_FILE}"
+
+    echo "Source MODIS directory: ${source_path}"
+
+    echo "Output VRT directory: ${dest_path}"
+
+    echo "MODIS years: ${MODIS_YEARS[*]}"
+
+    echo "GDAL executable: $(command -v gdalinfo)"
+
+    echo "GDAL version: $(gdalinfo --version)"
+
+    echo "HDF4 support: yes"
+
+    echo "VRT files created: ${created_count}"
+
+} > "$log_file"
+
+
+cp "$0" "$log_path/$this_file"
+
+
+# ============================================================
+# FINISH
+# ============================================================
+
+echo "======================================================================"
+echo "MODIS YEARLY VRT CREATION COMPLETED"
+echo "======================================================================"
+
+echo "Domain       : $domain_name"
+
+echo "VRTs created : $created_count"
+
+echo "Output folder: $dest_path"
+
+echo "Workflow log : $log_file"
+
+echo

@@ -1,83 +1,114 @@
 #!/usr/bin/env python3
+# coding: utf-8
 
 """
-Create the mizuRoute control file.
+Create mizuroute.control for a selected NWAM/CWARHM domain.
 
 Purpose
 -------
-Populate mizuroute.control using the active CWARHM control file.
+Create the mizuRoute runtime control file using an explicitly
+specified domain control file.
 
-The generated control file defines:
-    - mizuRoute ancillary, input and output directories
-    - routing parameter namelist
-    - simulation period
-    - routing scheme
-    - topology file and variable names
-    - SUMMA runoff input file and variable names
-    - optional SUMMA-to-mizuRoute remapping
-    - within-basin routing option
-    - ParallelIO/NetCDF output configuration
+The generated control defines:
 
-Reproducibility improvements
-----------------------------
-    - robust control-file path based on this script's location
-    - exact control-setting matching
-    - validates required settings and files
-    - validates simulation dates
-    - validates routing option, timestep and output frequency
-    - validates remapping configuration
-    - validates topology and parameter files
-    - writes mizuRoute v3.1.1-compatible control syntax
-    - uses <ro_calendar>, not <calendar>
-    - writes "!" delimiter on every setting line
-    - writes no blank lines
-    - explicitly configures the validated serial NetCDF PIO backend
-    - stages param.nml.default where mizuRoute v3.1.1 expects it
-    - verifies the generated control file
-    - records workflow provenance
+  - ancillary/settings directory
+  - SUMMA runoff input directory
+  - mizuRoute output directory
+  - routing parameter namelist
+  - simulation period
+  - routing option
+  - topology file and variable names
+  - SUMMA runoff file and variable names
+  - optional SUMMA-to-mizuRoute remapping
+  - within-basin routing
+  - NetCDF/PIO output configuration
+
+IMPORTANT
+---------
+This script does NOT read, create, or modify control_active.txt.
+
+Usage
+-----
+python 1_create_control_file.py \
+/path/to/control_DOMAIN.txt
 """
 
 
+import sys
 from pathlib import Path
-from shutil import copyfile, copy2
+from shutil import copy2
 from datetime import datetime
 
 
 # ============================================================
-# PROJECT / CONTROL FILE
+# CONTROL FILE
 # ============================================================
 
-SCRIPT_DIR = Path(__file__).resolve().parent
+if len(sys.argv) != 2:
 
-# Script:
-# CWARHM/5_model_input/mizuRoute/1d_control_file/
-#
-# parents[2] = CWARHM
-CWARHM_ROOT = SCRIPT_DIR.parents[2]
+    raise SystemExit(
+        "Usage:\n"
+        "python 1_create_control_file.py "
+        "/path/to/control_DOMAIN.txt"
+    )
 
-CONTROL_FILE = (
-    CWARHM_ROOT
-    / "0_control_files"
-    / "control_active.txt"
-)
+
+CONTROL_FILE = Path(
+    sys.argv[1]
+).resolve()
+
 
 if not CONTROL_FILE.exists():
 
     raise FileNotFoundError(
-        f"Control file not found:\n{CONTROL_FILE}"
+        "Control file not found:\n"
+        f"{CONTROL_FILE}"
     )
+
+
+if not CONTROL_FILE.is_file():
+
+    raise RuntimeError(
+        "Control-file path is not a file:\n"
+        f"{CONTROL_FILE}"
+    )
+
+
+# ============================================================
+# PROJECT PATHS
+# ============================================================
+
+SCRIPT_DIR = Path(
+    __file__
+).resolve().parent
+
+
+# Script location:
+#
+# CWARHM_multibasin/
+#   5_model_input/
+#     mizuRoute/
+#       1d_control_file/
+#         1_create_control_file.py
+
+CWARHM_ROOT = (
+    SCRIPT_DIR.parents[2]
+)
 
 
 # ============================================================
 # CONTROL FUNCTIONS
 # ============================================================
 
-def read_from_control(file, setting):
+def read_from_control(
+    file,
+    setting
+):
     """
-    Read one exact setting from the CWARHM control file.
+    Read one control setting using exact key matching.
     """
 
-    with file.open() as contents:
+    with open(file) as contents:
 
         for line in contents:
 
@@ -90,25 +121,41 @@ def read_from_control(file, setting):
             ):
                 continue
 
-            left, right = stripped.split("|", 1)
+            left, right = stripped.split(
+                "|",
+                1
+            )
 
             if left.strip() != setting:
                 continue
 
-            return (
+            value = (
                 right
                 .split("#", 1)[0]
                 .strip()
             )
 
+            if value == "":
+
+                raise ValueError(
+                    f"Setting '{setting}' is empty in:\n"
+                    f"{file}"
+                )
+
+            return value
+
     raise ValueError(
-        f"Setting not found in control file: {setting}"
+        f"Setting '{setting}' not found in:\n"
+        f"{file}"
     )
 
 
-def make_default_path(suffix):
+def make_default_path(
+    suffix
+):
     """
-    Construct a default domain path.
+    Construct:
+        <root_path>/domain_<domain_name>/<suffix>
     """
 
     root_path = Path(
@@ -130,6 +177,30 @@ def make_default_path(suffix):
     )
 
 
+def resolve_path(
+    setting,
+    default_suffix
+):
+    """
+    Resolve a control-file path setting.
+    """
+
+    value = read_from_control(
+        CONTROL_FILE,
+        setting
+    )
+
+    if value == "default":
+
+        return make_default_path(
+            default_suffix
+        )
+
+    return Path(
+        value
+    )
+
+
 # ============================================================
 # DOMAIN / EXPERIMENT
 # ============================================================
@@ -138,6 +209,7 @@ domain_name = read_from_control(
     CONTROL_FILE,
     "domain_name"
 )
+
 
 experiment_id = read_from_control(
     CONTROL_FILE,
@@ -149,28 +221,16 @@ experiment_id = read_from_control(
 # MIZUROUTE SETTINGS DIRECTORY
 # ============================================================
 
-control_path = read_from_control(
-    CONTROL_FILE,
-    "settings_mizu_path"
+control_path = resolve_path(
+    "settings_mizu_path",
+    "settings/mizuRoute"
 )
+
 
 control_name = read_from_control(
     CONTROL_FILE,
     "settings_mizu_control_file"
 )
-
-
-if control_path == "default":
-
-    control_path = make_default_path(
-        "settings/mizuRoute"
-    )
-
-else:
-
-    control_path = Path(
-        control_path
-    )
 
 
 control_path.mkdir(
@@ -185,21 +245,24 @@ control_output = (
 )
 
 
-# Ancillary directory is the mizuRoute settings folder.
-path_to_settings = control_path
+# mizuRoute ancillary directory.
+
+path_to_settings = (
+    control_path
+)
 
 
 # ============================================================
 # SUMMA OUTPUT / MIZUROUTE INPUT DIRECTORY
 # ============================================================
 
-path_to_input = read_from_control(
+summa_output_setting = read_from_control(
     CONTROL_FILE,
     "experiment_output_summa"
 )
 
 
-if path_to_input == "default":
+if summa_output_setting == "default":
 
     path_to_input = make_default_path(
         f"simulations/{experiment_id}/SUMMA"
@@ -208,12 +271,13 @@ if path_to_input == "default":
 else:
 
     path_to_input = Path(
-        path_to_input
+        summa_output_setting
     )
 
 
-# This directory may not contain SUMMA output yet,
-# but Stage 5 can safely create the folder.
+# SUMMA output may not exist yet at Stage 5, so creating the
+# directory is appropriate.
+
 path_to_input.mkdir(
     parents=True,
     exist_ok=True
@@ -224,13 +288,13 @@ path_to_input.mkdir(
 # MIZUROUTE OUTPUT DIRECTORY
 # ============================================================
 
-path_to_output = read_from_control(
+mizu_output_setting = read_from_control(
     CONTROL_FILE,
     "experiment_output_mizuRoute"
 )
 
 
-if path_to_output == "default":
+if mizu_output_setting == "default":
 
     path_to_output = make_default_path(
         f"simulations/{experiment_id}/mizuRoute"
@@ -239,7 +303,7 @@ if path_to_output == "default":
 else:
 
     path_to_output = Path(
-        path_to_output
+        mizu_output_setting
     )
 
 
@@ -250,10 +314,10 @@ path_to_output.mkdir(
 
 
 # ============================================================
-# PARAMETER FILE
+# PARAMETER NAMELIST
 # ============================================================
 
-par_file = read_from_control(
+parameter_name = read_from_control(
     CONTROL_FILE,
     "settings_mizu_parameters"
 )
@@ -261,7 +325,7 @@ par_file = read_from_control(
 
 parameter_file = (
     path_to_settings
-    / par_file
+    / parameter_name
 )
 
 
@@ -270,24 +334,25 @@ if not parameter_file.exists():
     raise FileNotFoundError(
         "mizuRoute parameter namelist not found:\n"
         f"{parameter_file}\n\n"
-        "Complete the mizuRoute base-settings step "
-        "before creating mizuroute.control."
+        "Run the mizuRoute base-settings copy step first."
     )
 
 
 # ------------------------------------------------------------
-# Stage parameter namelist where mizuRoute v3.1.1 expects it.
+# Stage parameter file in SUMMA-output/input directory
+# ------------------------------------------------------------
 #
-# With:
+# Current mizuRoute configuration uses:
+#
 #   <input_dir> .../SUMMA/
 #   <param_nml> param.nml.default
 #
-# mizuRoute looks for the parameter file under input_dir.
-# ------------------------------------------------------------
+# so retain the tested workflow behavior and copy the namelist
+# there as well.
 
 parameter_input_file = (
     path_to_input
-    / par_file
+    / parameter_name
 )
 
 
@@ -306,47 +371,69 @@ sim_start = read_from_control(
     "experiment_time_start"
 )
 
+
 sim_end = read_from_control(
     CONTROL_FILE,
     "experiment_time_end"
 )
 
 
-if sim_start == "default":
+forcing_raw_time = read_from_control(
+    CONTROL_FILE,
+    "forcing_raw_time"
+)
 
-    raw_time = read_from_control(
-        CONTROL_FILE,
-        "forcing_raw_time"
-    )
 
-    year_start, _ = [
-        value.strip()
-        for value in raw_time.split(",", 1)
+try:
+
+    start_year_text, end_year_text = [
+        item.strip()
+        for item in forcing_raw_time.split(
+            ",",
+            1
+        )
     ]
 
+    start_year = int(
+        start_year_text
+    )
+
+    end_year = int(
+        end_year_text
+    )
+
+except Exception as exc:
+
+    raise ValueError(
+        "forcing_raw_time must have format:\n"
+        "START_YEAR,END_YEAR\n"
+        "for example:\n"
+        "1950,2019"
+    ) from exc
+
+
+if start_year > end_year:
+
+    raise ValueError(
+        "forcing_raw_time start year is greater "
+        "than end year."
+    )
+
+
+if sim_start == "default":
+
     sim_start = (
-        f"{year_start}-01-01 00:00"
+        f"{start_year}-01-01 00:00"
     )
 
 
 if sim_end == "default":
 
-    raw_time = read_from_control(
-        CONTROL_FILE,
-        "forcing_raw_time"
-    )
-
-    _, year_end = [
-        value.strip()
-        for value in raw_time.split(",", 1)
-    ]
-
     sim_end = (
-        f"{year_end}-12-31 23:00"
+        f"{end_year}-12-31 23:00"
     )
 
 
-# Validate date strings.
 try:
 
     start_datetime = datetime.strptime(
@@ -362,8 +449,8 @@ try:
 except ValueError as exc:
 
     raise ValueError(
-        "experiment_time_start and experiment_time_end "
-        "must use format:\n"
+        "experiment_time_start and "
+        "experiment_time_end must use:\n"
         "YYYY-MM-DD HH:MM"
     ) from exc
 
@@ -376,10 +463,10 @@ if end_datetime < start_datetime:
 
 
 # ============================================================
-# TOPOLOGY SETTINGS
+# TOPOLOGY FILE
 # ============================================================
 
-topology_nc = read_from_control(
+topology_name = read_from_control(
     CONTROL_FILE,
     "settings_mizu_topology"
 )
@@ -387,7 +474,7 @@ topology_nc = read_from_control(
 
 topology_file = (
     path_to_settings
-    / topology_nc
+    / topology_name
 )
 
 
@@ -396,29 +483,29 @@ if not topology_file.exists():
     raise FileNotFoundError(
         "mizuRoute topology file not found:\n"
         f"{topology_file}\n\n"
-        "Complete the mizuRoute topology step "
-        "before creating mizuroute.control."
+        "Run 1_create_network_topology_file.py first."
     )
 
 
-# Names correspond exactly to topology.nc generated by
-# 1_create_network_topology_file.py.
+# Names generated by topology.nc.
 
-topology_seg = "seg"
-topology_hru = "hru"
-
-# Negative outlet ID tells mizuRoute to route the complete
-# supplied network rather than mask the topology to one
-# selected downstream reach.
-topology_outlet = "-9999"
+topology_seg_dim = "seg"
+topology_hru_dim = "hru"
 
 topology_var_area = "area"
 topology_var_length = "length"
 topology_var_slope = "slope"
+
 topology_var_hru_id = "hruId"
-topology_var_hru_to_seg_id = "hruToSegId"
+topology_var_hru_to_seg = "hruToSegId"
+
 topology_var_seg_id = "segId"
 topology_var_down_seg_id = "downSegId"
+
+
+# Negative value means use the complete supplied topology.
+
+topology_outlet = "-9999"
 
 
 # ============================================================
@@ -428,12 +515,12 @@ topology_var_down_seg_id = "downSegId"
 remap_flag = read_from_control(
     CONTROL_FILE,
     "river_basin_needs_remap"
-).lower()
+).strip().lower()
 
 
 if remap_flag not in {
     "yes",
-    "no"
+    "no",
 }:
 
     raise ValueError(
@@ -446,44 +533,49 @@ if remap_flag == "yes":
 
     do_remap = "T"
 
-    remap_nc = read_from_control(
+    remap_name = read_from_control(
         CONTROL_FILE,
         "settings_mizu_remap"
     )
 
     remap_file = (
         path_to_settings
-        / remap_nc
+        / remap_name
     )
 
     if not remap_file.exists():
 
         raise FileNotFoundError(
             "river_basin_needs_remap = yes, "
-            "but remapping NetCDF was not found:\n"
+            "but routing remapping file was not found:\n"
             f"{remap_file}"
         )
 
 
-    # Names generated by the CWARHM routing-remap script.
+    # Variables generated by optional remapping script.
+
     remap_var_rn_hru = "RN_hruId"
     remap_var_weight = "weight"
     remap_var_hm_gru = "HM_hruId"
     remap_var_overlap = "nOverlaps"
 
-    remap_dim_hm_gru = "hru"
+    remap_dim_hru = "hru"
     remap_dim_data = "data"
+
 
 else:
 
     do_remap = "F"
+
+    remap_name = None
+    remap_file = None
 
 
 # ============================================================
 # SUMMA RUNOFF INPUT
 # ============================================================
 
-# Stage 6 merges the SUMMA array outputs into:
+# Stage 6 merges SUMMA output into:
 #
 #   <experiment_id>_timestep.nc
 #
@@ -501,13 +593,14 @@ routing_var_flow = read_from_control(
     "settings_mizu_routing_var"
 )
 
+
 routing_var_flow_units = read_from_control(
     CONTROL_FILE,
     "settings_mizu_routing_units"
 )
 
 
-routing_dt = read_from_control(
+routing_dt_text = read_from_control(
     CONTROL_FILE,
     "settings_mizu_routing_dt"
 )
@@ -516,7 +609,7 @@ routing_dt = read_from_control(
 try:
 
     routing_dt_value = float(
-        routing_dt
+        routing_dt_text
     )
 
 except ValueError as exc:
@@ -533,7 +626,24 @@ if routing_dt_value <= 0:
     )
 
 
-# Standard merged SUMMA runoff dimensions/variables.
+# Use integer text where possible.
+
+if routing_dt_value.is_integer():
+
+    routing_dt = str(
+        int(
+            routing_dt_value
+        )
+    )
+
+else:
+
+    routing_dt = str(
+        routing_dt_value
+    )
+
+
+# Standard merged SUMMA dimensions.
 
 routing_dim_time = "time"
 routing_var_time = "time"
@@ -541,36 +651,19 @@ routing_var_time = "time"
 routing_dim_id = "gru"
 routing_var_id = "gruId"
 
-routing_nc_calendar = "standard"
+routing_calendar = "standard"
 
 
 # ============================================================
-# PIO / NETCDF OUTPUT SETTINGS
+# ROUTING OPTION
 # ============================================================
 
-# Current NWAM mizuRoute v3.1.1 build is validated with:
+# Historical CWARHM control key:
 #
-#   - PIO enabled
-#   - serial NetCDF backend
-#   - one mizuRoute MPI task
+# settings_mizu_output_vars
 #
-# Multi-rank operation with this serial backend produced
-# corrupted NetCDF history-file record indices during testing.
-#
-# Stage 6 therefore currently enforces one mizuRoute task.
-
-pio_netcdf_type = "netcdf"
-pio_netcdf_format = "64bit_offset"
-
-
-# ============================================================
-# ROUTING OPTIONS
-# ============================================================
-
-# NOTE:
-# The existing CWARHM setting is named
-# settings_mizu_output_vars, but its actual meaning in this
-# workflow is the mizuRoute route_opt value.
+# is being retained here because it currently stores route_opt
+# in the existing control files.
 
 route_opt_text = read_from_control(
     CONTROL_FILE,
@@ -587,18 +680,26 @@ try:
 except ValueError as exc:
 
     raise ValueError(
-        "settings_mizu_output_vars must be an "
-        "integer mizuRoute routing option."
+        "settings_mizu_output_vars currently represents "
+        "mizuRoute route_opt and must be an integer."
     ) from exc
 
 
-if route_opt not in {
-    0, 1, 2, 3, 4, 5
-}:
+valid_route_options = {
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+}
+
+
+if route_opt not in valid_route_options:
 
     raise ValueError(
-        "Invalid mizuRoute routing option.\n"
-        "Expected one of:\n"
+        "Invalid mizuRoute route_opt.\n"
+        "Expected:\n"
         "0 = Sum\n"
         "1 = IRF\n"
         "2 = KWT\n"
@@ -608,21 +709,25 @@ if route_opt not in {
     )
 
 
-output_freq = read_from_control(
+# ============================================================
+# OUTPUT FREQUENCY
+# ============================================================
+
+output_frequency = read_from_control(
     CONTROL_FILE,
     "settings_mizu_output_freq"
-).lower()
+).strip().lower()
 
 
 valid_output_frequencies = {
     "single",
     "daily",
     "monthly",
-    "yearly"
+    "yearly",
 }
 
 
-if output_freq not in valid_output_frequencies:
+if output_frequency not in valid_output_frequencies:
 
     raise ValueError(
         "settings_mizu_output_freq must be one of:\n"
@@ -630,7 +735,11 @@ if output_freq not in valid_output_frequencies:
     )
 
 
-do_basin_route_text = read_from_control(
+# ============================================================
+# WITHIN-BASIN ROUTING
+# ============================================================
+
+within_basin_text = read_from_control(
     CONTROL_FILE,
     "settings_mizu_within_basin"
 )
@@ -638,8 +747,8 @@ do_basin_route_text = read_from_control(
 
 try:
 
-    do_basin_route = int(
-        do_basin_route_text
+    within_basin = int(
+        within_basin_text
     )
 
 except ValueError as exc:
@@ -649,9 +758,9 @@ except ValueError as exc:
     ) from exc
 
 
-if do_basin_route not in {
+if within_basin not in {
     0,
-    1
+    1,
 }:
 
     raise ValueError(
@@ -662,48 +771,112 @@ if do_basin_route not in {
 
 
 # ============================================================
-# SUMMARY BEFORE WRITING
+# PIO / NETCDF SETTINGS
+# ============================================================
+
+# Current tested NWAM configuration.
+
+pio_netcdf_type = "netcdf"
+pio_netcdf_format = "64bit_offset"
+
+
+# ============================================================
+# REPORT BEFORE WRITING
 # ============================================================
 
 print()
-print("============================================================")
+print("=" * 70)
 print("CREATE MIZUROUTE CONTROL FILE")
-print("============================================================")
+print("=" * 70)
 
-print(f"Domain           : {domain_name}")
-print(f"Experiment       : {experiment_id}")
-print(f"Simulation start : {sim_start}")
-print(f"Simulation end   : {sim_end}")
-print(f"Settings path    : {path_to_settings}")
-print(f"SUMMA input      : {path_to_input}")
-print(f"mizuRoute output : {path_to_output}")
-print(f"Topology         : {topology_file}")
-print(f"Parameters       : {parameter_file}")
-print(f"Parameter staged : {parameter_input_file}")
-print(f"SUMMA runoff     : {routing_nc}")
-print(f"Runoff variable  : {routing_var_flow}")
-print(f"Routing dt       : {routing_dt} s")
-print(f"Route option     : {route_opt}")
-print(f"Within basin     : {do_basin_route}")
-print(f"Remapping        : {do_remap}")
-print(f"Output frequency : {output_freq}")
-print(f"PIO type         : {pio_netcdf_type}")
-print(f"PIO format       : {pio_netcdf_format}")
-print(f"Control output   : {control_output}")
+print(
+    f"Domain           : {domain_name}"
+)
+
+print(
+    f"Control file     : {CONTROL_FILE}"
+)
+
+print(
+    f"Experiment       : {experiment_id}"
+)
+
+print(
+    f"Simulation start : {sim_start}"
+)
+
+print(
+    f"Simulation end   : {sim_end}"
+)
+
+print(
+    f"Settings path    : {path_to_settings}"
+)
+
+print(
+    f"SUMMA input      : {path_to_input}"
+)
+
+print(
+    f"mizuRoute output : {path_to_output}"
+)
+
+print(
+    f"Topology         : {topology_file}"
+)
+
+print(
+    f"Parameters       : {parameter_file}"
+)
+
+print(
+    f"Parameter staged : {parameter_input_file}"
+)
+
+print(
+    f"SUMMA runoff     : {routing_nc}"
+)
+
+print(
+    f"Runoff variable  : {routing_var_flow}"
+)
+
+print(
+    f"Routing dt       : {routing_dt} s"
+)
+
+print(
+    f"Route option     : {route_opt}"
+)
+
+print(
+    f"Within basin     : {within_basin}"
+)
+
+print(
+    f"Remapping        : {do_remap}"
+)
+
+print(
+    f"Output frequency : {output_frequency}"
+)
+
+print(
+    f"PIO type         : {pio_netcdf_type}"
+)
+
+print(
+    f"PIO format       : {pio_netcdf_format}"
+)
+
+print(
+    f"Control output   : {control_output}"
+)
 
 
 # ============================================================
 # BUILD CONTROL FILE
 # ============================================================
-
-# Important:
-#
-# mizuRoute v3.1.1 parsing proved sensitive to:
-#
-#   - blank lines
-#   - setting lines without the "!" delimiter
-#
-# Build the complete file as a list of non-empty lines.
 
 control_lines = []
 
@@ -713,7 +886,7 @@ control_lines = []
 # ------------------------------------------------------------
 
 control_lines.append(
-    "! mizuRoute control file generated by the NWAM/CWARHM workflow"
+    "! mizuRoute control file generated by NWAM/CWARHM"
 )
 
 
@@ -739,7 +912,7 @@ control_lines.append(
 
 
 # ------------------------------------------------------------
-# Parameter namelist
+# Parameter file
 # ------------------------------------------------------------
 
 control_lines.append(
@@ -747,12 +920,12 @@ control_lines.append(
 )
 
 control_lines.append(
-    f"<param_nml> {par_file} ! routing parameter namelist"
+    f"<param_nml> {parameter_name} ! routing parameter namelist"
 )
 
 
 # ------------------------------------------------------------
-# Simulation controls
+# Simulation
 # ------------------------------------------------------------
 
 control_lines.append(
@@ -772,11 +945,11 @@ control_lines.append(
 )
 
 control_lines.append(
-    f"<route_opt> {route_opt} ! 0 Sum; 1 IRF; 2 KWT; 3 KW; 4 MC; 5 DW"
+    f"<route_opt> {route_opt} !"
 )
 
 control_lines.append(
-    f"<newFileFrequency> {output_freq} !"
+    f"<newFileFrequency> {output_frequency} !"
 )
 
 
@@ -789,15 +962,15 @@ control_lines.append(
 )
 
 control_lines.append(
-    f"<fname_ntopOld> {topology_nc} !"
+    f"<fname_ntopOld> {topology_name} !"
 )
 
 control_lines.append(
-    f"<dname_sseg> {topology_seg} !"
+    f"<dname_sseg> {topology_seg_dim} !"
 )
 
 control_lines.append(
-    f"<dname_nhru> {topology_hru} !"
+    f"<dname_nhru> {topology_hru_dim} !"
 )
 
 control_lines.append(
@@ -821,7 +994,7 @@ control_lines.append(
 )
 
 control_lines.append(
-    f"<varname_hruSegId> {topology_var_hru_to_seg_id} !"
+    f"<varname_hruSegId> {topology_var_hru_to_seg} !"
 )
 
 control_lines.append(
@@ -873,14 +1046,13 @@ control_lines.append(
     f"<vname_hruid> {routing_var_id} !"
 )
 
-# mizuRoute v3.1.1 setting name.
 control_lines.append(
-    f"<ro_calendar> {routing_nc_calendar} !"
+    f"<ro_calendar> {routing_calendar} !"
 )
 
 
 # ------------------------------------------------------------
-# Remapping
+# Optional remapping
 # ------------------------------------------------------------
 
 control_lines.append(
@@ -895,7 +1067,7 @@ control_lines.append(
 if remap_flag == "yes":
 
     control_lines.append(
-        f"<fname_remap> {remap_nc} !"
+        f"<fname_remap> {remap_name} !"
     )
 
     control_lines.append(
@@ -915,7 +1087,7 @@ if remap_flag == "yes":
     )
 
     control_lines.append(
-        f"<dname_hru_remap> {remap_dim_hm_gru} !"
+        f"<dname_hru_remap> {remap_dim_hru} !"
     )
 
     control_lines.append(
@@ -924,7 +1096,7 @@ if remap_flag == "yes":
 
 
 # ------------------------------------------------------------
-# Output I/O
+# NetCDF / PIO
 # ------------------------------------------------------------
 
 control_lines.append(
@@ -949,22 +1121,24 @@ control_lines.append(
 )
 
 control_lines.append(
-    f"<doesBasinRoute> {do_basin_route} !"
+    f"<doesBasinRoute> {within_basin} !"
 )
 
 
 # ============================================================
-# WRITE CONTROL FILE
+# WRITE
 # ============================================================
 
 control_output.write_text(
-    "\n".join(control_lines)
+    "\n".join(
+        control_lines
+    )
     + "\n"
 )
 
 
 # ============================================================
-# VERIFY GENERATED CONTROL FILE
+# VERIFY GENERATED CONTROL
 # ============================================================
 
 if not control_output.exists():
@@ -982,12 +1156,14 @@ generated_lines = (
 
 
 # ------------------------------------------------------------
-# No blank lines
+# Blank-line check
 # ------------------------------------------------------------
 
 blank_lines = [
     index + 1
-    for index, line in enumerate(generated_lines)
+    for index, line in enumerate(
+        generated_lines
+    )
     if not line.strip()
 ]
 
@@ -995,37 +1171,45 @@ blank_lines = [
 if blank_lines:
 
     raise RuntimeError(
-        "Generated mizuroute.control contains blank lines:\n"
-        f"{blank_lines}"
+        "Generated mizuroute.control contains "
+        f"blank lines: {blank_lines}"
     )
 
 
 # ------------------------------------------------------------
-# Every setting line must contain !
+# Every setting must have !
 # ------------------------------------------------------------
 
 bad_setting_lines = [
-    (index + 1, line)
-    for index, line in enumerate(generated_lines)
-    if line.lstrip().startswith("<")
-    and "!" not in line
+    (
+        index + 1,
+        line
+    )
+    for index, line in enumerate(
+        generated_lines
+    )
+    if (
+        line.lstrip().startswith("<")
+        and "!" not in line
+    )
 ]
 
 
 if bad_setting_lines:
 
     raise RuntimeError(
-        "Generated mizuroute.control contains setting "
-        "lines without '!':\n"
+        "Generated mizuroute.control contains "
+        "setting lines without '!':\n"
         + "\n".join(
             f"{line_number}: {line}"
-            for line_number, line in bad_setting_lines
+            for line_number, line
+            in bad_setting_lines
         )
     )
 
 
 # ------------------------------------------------------------
-# Required settings
+# Required entries
 # ------------------------------------------------------------
 
 control_text = "\n".join(
@@ -1047,6 +1231,7 @@ required_entries = [
     "<seg_outlet>",
     "<fname_qsim>",
     "<vname_qsim>",
+    "<dt_qsim>",
     "<ro_calendar>",
     "<is_remap>",
     "<pio_netcdf_type>",
@@ -1067,66 +1252,74 @@ if missing_entries:
     raise RuntimeError(
         "Generated mizuroute.control is missing "
         "required entries:\n"
-        f"{missing_entries}"
+        + "\n".join(
+            missing_entries
+        )
     )
 
 
 # ------------------------------------------------------------
-# Reject obsolete calendar setting
+# Reject obsolete calendar syntax
 # ------------------------------------------------------------
 
 if "<calendar>" in control_text:
 
     raise RuntimeError(
-        "Generated control file contains obsolete "
-        "<calendar> setting. Use <ro_calendar>."
+        "Generated control contains obsolete "
+        "<calendar>. Use <ro_calendar>."
     )
 
 
 # ------------------------------------------------------------
-# Verify exact validated settings
+# Verify exact settings
 # ------------------------------------------------------------
 
 required_exact_lines = {
     f"<seg_outlet> {topology_outlet} !",
-    f"<ro_calendar> {routing_nc_calendar} !",
+    f"<ro_calendar> {routing_calendar} !",
     f"<pio_netcdf_type> {pio_netcdf_type} !",
     f"<pio_netcdf_format> {pio_netcdf_format} !",
+    f"<is_remap> {do_remap} !",
+    f"<doesBasinRoute> {within_basin} !",
 }
 
 
 missing_exact_lines = (
     required_exact_lines
-    - set(generated_lines)
+    - set(
+        generated_lines
+    )
 )
 
 
 if missing_exact_lines:
 
     raise RuntimeError(
-        "Generated control file does not contain "
-        "the required validated mizuRoute settings:\n"
+        "Generated mizuroute.control does not "
+        "contain the required exact settings:\n"
         + "\n".join(
-            sorted(missing_exact_lines)
+            sorted(
+                missing_exact_lines
+            )
         )
     )
 
 
 # ------------------------------------------------------------
-# Verify staged parameter file
+# Verify parameter staging
 # ------------------------------------------------------------
 
 if not parameter_input_file.exists():
 
     raise RuntimeError(
-        "mizuRoute parameter namelist was not staged "
-        "into the SUMMA/mizuRoute input directory:\n"
+        "Parameter namelist was not staged into "
+        "the mizuRoute input directory:\n"
         f"{parameter_input_file}"
     )
 
 
 # ============================================================
-# LOGGING / PROVENANCE
+# WORKFLOW LOG
 # ============================================================
 
 log_folder = (
@@ -1146,18 +1339,20 @@ this_file = Path(
 ).name
 
 
-copyfile(
+copy2(
     Path(__file__).resolve(),
     log_folder
     / this_file
 )
 
 
-# Preserve the active workflow control file too.
-copyfile(
+# Preserve the actual domain-specific control file,
+# under its actual filename.
+
+copy2(
     CONTROL_FILE,
     log_folder
-    / "control_active.txt"
+    / CONTROL_FILE.name
 )
 
 
@@ -1167,72 +1362,112 @@ now = datetime.now()
 log_file = (
     log_folder
     / (
-        f"{now:%Y%m%d}_"
-        "make_control_file.txt"
+        f"{now:%Y%m%d_%H%M%S}_"
+        "create_mizuroute_control.txt"
     )
 )
 
 
-with log_file.open(
+with open(
+    log_file,
     "w"
-) as f:
+) as file:
 
-    f.write(
+    file.write(
         f"Log generated by {this_file} "
         f"on {now:%Y/%m/%d %H:%M:%S}\n"
     )
 
-    f.write(
+    file.write(
         f"Domain: {domain_name}\n"
     )
 
-    f.write(
+    file.write(
+        f"Control file: {CONTROL_FILE}\n"
+    )
+
+    file.write(
         f"Experiment: {experiment_id}\n"
     )
 
-    f.write(
-        f"Simulation: {sim_start} to {sim_end}\n"
+    file.write(
+        f"Simulation: "
+        f"{sim_start} to {sim_end}\n"
     )
 
-    f.write(
+    file.write(
         f"Route option: {route_opt}\n"
     )
 
-    f.write(
-        f"Within-basin routing: {do_basin_route}\n"
+    file.write(
+        f"Within-basin routing: "
+        f"{within_basin}\n"
     )
 
-    f.write(
+    file.write(
         f"Remapping: {do_remap}\n"
     )
 
-    f.write(
-        f"seg_outlet: {topology_outlet}\n"
+    file.write(
+        f"Topology: {topology_file}\n"
     )
 
-    f.write(
-        f"Runoff calendar setting: "
-        f"{routing_nc_calendar}\n"
+    file.write(
+        f"SUMMA runoff file: {routing_nc}\n"
     )
 
-    f.write(
-        f"PIO NetCDF type: {pio_netcdf_type}\n"
+    file.write(
+        f"Runoff variable: "
+        f"{routing_var_flow}\n"
     )
 
-    f.write(
-        f"PIO NetCDF format: {pio_netcdf_format}\n"
+    file.write(
+        f"Routing timestep: "
+        f"{routing_dt} s\n"
     )
 
-    f.write(
-        f"Parameter source: {parameter_file}\n"
+    file.write(
+        f"Output frequency: "
+        f"{output_frequency}\n"
     )
 
-    f.write(
-        f"Parameter staged: {parameter_input_file}\n"
+    file.write(
+        f"seg_outlet: "
+        f"{topology_outlet}\n"
     )
 
-    f.write(
-        f"Control output: {control_output}\n"
+    file.write(
+        f"Runoff calendar: "
+        f"{routing_calendar}\n"
+    )
+
+    file.write(
+        f"PIO NetCDF type: "
+        f"{pio_netcdf_type}\n"
+    )
+
+    file.write(
+        f"PIO NetCDF format: "
+        f"{pio_netcdf_format}\n"
+    )
+
+    file.write(
+        f"Parameter source: "
+        f"{parameter_file}\n"
+    )
+
+    file.write(
+        f"Parameter staged: "
+        f"{parameter_input_file}\n"
+    )
+
+    file.write(
+        f"Control output: "
+        f"{control_output}\n"
+    )
+
+    file.write(
+        "Shared control_active.txt used: no\n"
     )
 
 
@@ -1241,39 +1476,72 @@ with log_file.open(
 # ============================================================
 
 print()
-print("============================================================")
-print("MIZUROUTE CONTROL FILE CREATED SUCCESSFULLY")
-print("============================================================")
+print("=" * 70)
+print("MIZUROUTE CONTROL FILE CREATION COMPLETED")
+print("=" * 70)
 
-print(f"Output           : {control_output}")
-print(f"Parameter staged : {parameter_input_file}")
+print(
+    f"Domain           : {domain_name}"
+)
+
+print(
+    f"Control file     : {CONTROL_FILE}"
+)
+
+print(
+    f"Experiment       : {experiment_id}"
+)
+
+print(
+    f"Simulation       : "
+    f"{sim_start} to {sim_end}"
+)
+
+print(
+    f"Route option     : {route_opt}"
+)
+
+print(
+    f"Within basin     : {within_basin}"
+)
+
+print(
+    f"Remapping        : {do_remap}"
+)
+
+print(
+    f"Output frequency : {output_frequency}"
+)
+
+print(
+    f"Runoff file      : {routing_nc}"
+)
+
+print(
+    f"Runoff variable  : {routing_var_flow}"
+)
+
+print(
+    f"Routing dt       : {routing_dt} s"
+)
+
+print(
+    f"Output           : {control_output}"
+)
+
+print(
+    f"Parameter staged : {parameter_input_file}"
+)
+
+print(
+    f"Workflow log     : {log_file}"
+)
 
 print()
-print("Validated settings:")
-
 print(
-    f"  <seg_outlet>       {topology_outlet}"
+    "Control syntax validation passed."
 )
 
 print(
-    f"  <ro_calendar>      {routing_nc_calendar}"
+    "No control_active.txt was created or modified."
 )
-
-print(
-    f"  <pio_netcdf_type>  {pio_netcdf_type}"
-)
-
-print(
-    f"  <pio_netcdf_format> {pio_netcdf_format}"
-)
-
-print()
-print("Control syntax:")
-print("  Blank lines       : NONE")
-print("  Setting delimiter : PASS")
-print("  Required entries  : PASS")
-
-print()
-print(f"Workflow log      : {log_file}")
-
-print("============================================================")

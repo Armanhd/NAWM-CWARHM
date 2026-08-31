@@ -1,186 +1,284 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# Find mode land class
-#
-# Reads the multiband MODIS land-class GeoTIFF and calculates
-# the modal land class across all available bands/years.
-#
-# For the current Example setup there is only one band (2022),
-# so the output will simply equal the 2022 land-class raster.
-#
-# This implementation is also reusable later if multiple annual
-# MODIS bands are available.
+"""
+Create the representative MODIS land-class raster for one CWARHM domain.
 
-# Modules
-import numpy as np
+Usage
+-----
+python find_mode_landclass.py \
+/path/to/control_DOMAIN.txt
+
+Purpose
+-------
+Reads the multiband MODIS MCD12Q1 GeoTIFF created by the preceding
+workflow step and determines the representative land-cover class
+for every raster cell.
+
+For the current NWAM setup only the 2022 MCD12Q1 layer is used,
+so the input contains one band and the output is therefore identical
+to that band.
+
+If multiple annual MODIS bands are used in the future, the script
+calculates the modal class across valid annual observations while
+ignoring nodata values.
+
+The script is fully domain-specific and does not use the shared
+control_active.txt file.
+"""
+
 from pathlib import Path
-import scipy.stats as sc
-from shutil import copyfile
 from datetime import datetime
+from shutil import copy2
+import sys
+
+import numpy as np
 from osgeo import gdal
 
 
-# =========================================================
-# Control file handling
-# =========================================================
+# ============================================================
+# INPUT CONTROL FILE
+# ============================================================
 
-controlFolder = Path('../../../0_control_files')
-controlFile = 'control_active.txt'
+if len(sys.argv) != 2:
+    raise SystemExit(
+        "Usage:\n"
+        "python find_mode_landclass.py "
+        "/path/to/control_DOMAIN.txt"
+    )
 
+
+CONTROL_FILE = Path(
+    sys.argv[1]
+).expanduser().resolve()
+
+
+if not CONTROL_FILE.exists():
+    raise FileNotFoundError(
+        f"Control file not found:\n{CONTROL_FILE}"
+    )
+
+
+# ============================================================
+# CONTROL-FILE FUNCTIONS
+# ============================================================
 
 def read_from_control(file, setting):
+    """
+    Read one exact setting from the supplied CWARHM control file.
+    """
 
     with open(file) as contents:
 
         for line in contents:
 
-            if line.startswith(setting) and not line.startswith('#'):
+            stripped = line.strip()
 
-                value = line.split('|', 1)[1]
-                value = value.split('#', 1)[0]
+            if (
+                not stripped
+                or stripped.startswith("#")
+                or "|" not in stripped
+            ):
+                continue
 
-                return value.strip()
+            left, right = stripped.split(
+                "|",
+                1
+            )
+
+            if left.strip() != setting:
+                continue
+
+            value = (
+                right
+                .split("#", 1)[0]
+                .strip()
+            )
+
+            if value == "":
+                raise ValueError(
+                    f"Setting is empty in control file: "
+                    f"{setting}"
+                )
+
+            return value
 
     raise ValueError(
-        f"Setting not found in control file: {setting}"
+        f"Setting not found in control file: "
+        f"{setting}"
     )
 
 
 def make_default_path(suffix):
+    """
+    Construct a standard path inside domain_<domain_name>.
+    """
 
-    rootPath = Path(
+    root_path = Path(
         read_from_control(
-            controlFolder / controlFile,
-            'root_path'
+            CONTROL_FILE,
+            "root_path"
         )
     )
 
-    domainName = read_from_control(
-        controlFolder / controlFile,
-        'domain_name'
+    domain_name = read_from_control(
+        CONTROL_FILE,
+        "domain_name"
     )
 
-    domainFolder = 'domain_' + domainName
+    return (
+        root_path
+        / f"domain_{domain_name}"
+        / suffix
+    )
 
-    return rootPath / domainFolder / suffix
+
+def resolve_path(setting, default_suffix):
+    """
+    Resolve a control-file path setting.
+    """
+
+    value = read_from_control(
+        CONTROL_FILE,
+        setting
+    )
+
+    if value == "default":
+        return make_default_path(
+            default_suffix
+        )
+
+    return Path(
+        value
+    ).expanduser().resolve()
 
 
-# =========================================================
-# Source multiband land-class raster
-# =========================================================
+# ============================================================
+# DOMAIN
+# ============================================================
 
-landClassPath = read_from_control(
-    controlFolder / controlFile,
-    'parameter_land_tif_path'
+domain_name = read_from_control(
+    CONTROL_FILE,
+    "domain_name"
 )
 
-if landClassPath == 'default':
 
-    landClassPath = make_default_path(
-        'parameters/landclass/6_tif_multiband'
-    )
+# ============================================================
+# SOURCE MULTIBAND LAND-CLASS RASTER
+# ============================================================
 
-else:
-
-    landClassPath = Path(landClassPath)
-
-
-# =========================================================
-# Destination mode land-class folder
-# =========================================================
-
-modeLandClassPath = read_from_control(
-    controlFolder / controlFile,
-    'parameter_land_mode_path'
+land_class_path = resolve_path(
+    "parameter_land_tif_path",
+    "parameters/landclass/6_tif_multiband"
 )
 
-if modeLandClassPath == 'default':
 
-    modeLandClassPath = make_default_path(
-        'parameters/landclass/7_mode_land_class'
+if not land_class_path.exists():
+    raise FileNotFoundError(
+        "MODIS multiband TIFF directory not found:\n"
+        f"{land_class_path}"
     )
 
-else:
 
-    modeLandClassPath = Path(modeLandClassPath)
+if not land_class_path.is_dir():
+    raise NotADirectoryError(
+        f"Expected a directory:\n"
+        f"{land_class_path}"
+    )
 
 
-modeLandClassPath.mkdir(
+# ============================================================
+# DESTINATION MODE LAND-CLASS DIRECTORY
+# ============================================================
+
+mode_land_class_path = resolve_path(
+    "parameter_land_mode_path",
+    "parameters/landclass/7_mode_land_class"
+)
+
+
+mode_land_class_path.mkdir(
     parents=True,
     exist_ok=True
 )
 
 
-# =========================================================
-# Find source TIFF
-# =========================================================
+# ============================================================
+# OUTPUT FILENAME
+# ============================================================
 
-source_files = sorted(
-    landClassPath.glob("*.tif")
+dest_file_name = read_from_control(
+    CONTROL_FILE,
+    "parameter_land_tif_name"
 )
 
-if len(source_files) == 0:
 
+dest_file = (
+    mode_land_class_path
+    / dest_file_name
+)
+
+
+# ============================================================
+# FIND SOURCE TIFF
+# ============================================================
+
+source_files = sorted(
+    land_class_path.glob(
+        "*.tif"
+    )
+)
+
+
+if len(source_files) == 0:
     raise RuntimeError(
-        f"No land-class TIFF found in: "
-        f"{landClassPath}"
+        "No MODIS multiband TIFF found in:\n"
+        f"{land_class_path}"
     )
 
 
 if len(source_files) > 1:
-
     raise RuntimeError(
-        f"Expected one multiband land-class TIFF, "
+        "Expected exactly one MODIS multiband TIFF, "
         f"but found {len(source_files)}:\n"
         + "\n".join(
-            f"  {f.name}"
-            for f in source_files
+            f"  {file}"
+            for file in source_files
         )
     )
 
 
 source_file = source_files[0]
 
-print(
-    f"Source land-class file: "
-    f"{source_file}"
-)
+
+# ============================================================
+# REPORT
+# ============================================================
+
+print()
+print("=" * 70)
+print("CREATE REPRESENTATIVE MODIS LAND-CLASS RASTER")
+print("=" * 70)
+print()
+print(f"Domain       : {domain_name}")
+print(f"Control file : {CONTROL_FILE}")
+print(f"Source TIFF  : {source_file}")
+print(f"Output TIFF  : {dest_file}")
 
 
-# =========================================================
-# Destination filename
-# =========================================================
-
-dest_file_name = read_from_control(
-    controlFolder / controlFile,
-    'parameter_land_tif_name'
-)
-
-dest_file = (
-    modeLandClassPath
-    / dest_file_name
-)
-
-print(
-    f"Output mode land-class file: "
-    f"{dest_file}"
-)
-
-
-# =========================================================
-# Open source raster
-# =========================================================
+# ============================================================
+# OPEN SOURCE RASTER
+# ============================================================
 
 src_ds = gdal.Open(
     str(source_file),
     gdal.GA_ReadOnly
 )
 
-if src_ds is None:
 
+if src_ds is None:
     raise RuntimeError(
-        f"Could not open land-class raster: "
+        "Could not open MODIS land-class raster:\n"
         f"{source_file}"
     )
 
@@ -189,28 +287,115 @@ num_bands = src_ds.RasterCount
 ncols = src_ds.RasterXSize
 nrows = src_ds.RasterYSize
 
-print()
-print("Land-class raster information")
-print("-----------------------------")
-print(f"Columns: {ncols}")
-print(f"Rows   : {nrows}")
-print(f"Bands  : {num_bands}")
 
-
-if num_bands == 0:
-
+if num_bands <= 0:
     src_ds = None
 
     raise RuntimeError(
-        "Land-class raster contains no bands."
+        "MODIS land-class raster contains no bands."
     )
 
 
-# =========================================================
-# Read all available bands
-# =========================================================
+geo_transform = src_ds.GetGeoTransform()
+projection = src_ds.GetProjection()
 
-land_use_classes = []
+
+if not projection:
+    src_ds = None
+
+    raise RuntimeError(
+        "Source MODIS raster has no projection."
+    )
+
+
+print()
+print("Raster information")
+print("-" * 70)
+print(f"Columns      : {ncols}")
+print(f"Rows         : {nrows}")
+print(f"Bands        : {num_bands}")
+
+
+# ============================================================
+# DETERMINE NODATA
+# ============================================================
+
+nodata_values = []
+
+
+for band_number in range(
+    1,
+    num_bands + 1
+):
+
+    band = src_ds.GetRasterBand(
+        band_number
+    )
+
+    if band is None:
+        src_ds = None
+
+        raise RuntimeError(
+            f"Could not access source band "
+            f"{band_number}."
+        )
+
+    nodata_values.append(
+        band.GetNoDataValue()
+    )
+
+
+defined_nodata = [
+    value
+    for value in nodata_values
+    if value is not None
+]
+
+
+if defined_nodata:
+
+    first_nodata = defined_nodata[0]
+
+    for value in defined_nodata:
+
+        if value != first_nodata:
+            src_ds = None
+
+            raise RuntimeError(
+                "Source MODIS bands use inconsistent "
+                "nodata values."
+            )
+
+    nodata = first_nodata
+
+else:
+
+    # MODIS MCD12Q1 standard fill value.
+    nodata = 255
+
+if nodata < 0 or nodata > 255:
+    src_ds = None
+    raise RuntimeError(
+        f"MODIS nodata value {nodata} cannot be represented as uint8."
+    )
+
+nodata = int(nodata)
+print(f"NoData value : {nodata}")
+
+
+# ============================================================
+# READ SOURCE BANDS
+# ============================================================
+
+land_class_stack = np.empty(
+    (
+        num_bands,
+        nrows,
+        ncols
+    ),
+    dtype=np.uint8
+)
+
 
 for band_number in range(
     1,
@@ -226,110 +411,207 @@ for band_number in range(
         band_number
     )
 
-    if band is None:
-
-        src_ds = None
-
-        raise RuntimeError(
-            f"Could not read band "
-            f"{band_number}"
-        )
-
     data = band.ReadAsArray()
 
     if data is None:
-
         src_ds = None
 
         raise RuntimeError(
-            f"Could not read raster values "
-            f"from band {band_number}"
+            f"Could not read values from "
+            f"band {band_number}."
         )
 
-    land_use_classes.append(
-        data
+    if data.shape != (
+        nrows,
+        ncols
+    ):
+        src_ds = None
+
+        raise RuntimeError(
+            f"Unexpected shape for band "
+            f"{band_number}: {data.shape}"
+        )
+
+    land_class_stack[
+        band_number - 1,
+        :,
+        :
+    ] = data.astype(
+        np.uint8
     )
 
 
-# Stack to:
-#
-# rows x columns x bands
-#
-land_use_classes = np.dstack(
-    land_use_classes
-)
-
-print()
-print(
-    "Stacked land-class shape:",
-    land_use_classes.shape
-)
-
-
-# =========================================================
-# Calculate modal land class
-# =========================================================
+# ============================================================
+# CALCULATE REPRESENTATIVE LAND CLASS
+# ============================================================
 
 if num_bands == 1:
 
-    # With one year there is no temporal mode calculation
-    # to perform; the only band is the representative class.
-    mode = land_use_classes[:, :, 0]
+    mode = (
+        land_class_stack[0]
+        .copy()
+    )
 
+    print()
     print(
-        "Only one MODIS band available; "
-        "using that band directly."
+        "Only one MODIS year is available; "
+        "the source band is used directly."
     )
 
 else:
 
+    print()
     print(
-        f"Calculating modal land class "
-        f"across {num_bands} bands."
+        f"Calculating modal land class across "
+        f"{num_bands} MODIS bands."
     )
 
-    mode_result = sc.mode(
-        land_use_classes,
-        axis=2,
-        keepdims=False
+    # MODIS IGBP classes are small integer values.
+    # Use a deterministic categorical count rather than
+    # scipy.stats.mode so that nodata can be excluded explicitly.
+    #
+    # Valid MODIS values are safely represented in uint8.
+
+    mode = np.full(
+        (
+            nrows,
+            ncols
+        ),
+        nodata,
+        dtype=np.uint8
     )
 
-    mode = mode_result.mode
+    valid_mask = (
+        land_class_stack
+        != nodata
+    )
+
+    any_valid = valid_mask.any(
+        axis=0
+    )
+
+    valid_classes = np.unique(
+        land_class_stack[
+            valid_mask
+        ]
+    )
 
 
-# =========================================================
-# Basic QA
-# =========================================================
+    if valid_classes.size == 0:
+        src_ds = None
+
+        raise RuntimeError(
+            "No valid MODIS land-cover values "
+            "were found."
+        )
+
+
+    # Sort explicitly so an exact tie is resolved
+    # consistently toward the lowest class number.
+    valid_classes = np.sort(
+        valid_classes
+    )
+
+
+    best_count = np.zeros(
+        (
+            nrows,
+            ncols
+        ),
+        dtype=np.uint16
+    )
+
+
+    for land_class in valid_classes:
+
+        counts = np.sum(
+            land_class_stack
+            == land_class,
+            axis=0
+        )
+
+        replace = (
+            counts > best_count
+        )
+
+        mode[
+            replace
+        ] = land_class
+
+        best_count[
+            replace
+        ] = counts[
+            replace
+        ]
+
+
+    mode[
+        ~any_valid
+    ] = np.uint8(
+        nodata
+    )
+
+
+# ============================================================
+# BASIC QA
+# ============================================================
+
+valid_output = mode[
+    mode != nodata
+]
+
+
+if valid_output.size == 0:
+    src_ds = None
+
+    raise RuntimeError(
+        "Output raster contains no valid land classes."
+    )
+
 
 unique_classes = np.unique(
-    mode
+    valid_output
 )
+
+
+nodata_count = int(
+    np.count_nonzero(
+        mode == nodata
+    )
+)
+
 
 print()
+print("Output land classes")
+print("-" * 70)
 print(
-    "Land classes in output:",
-    unique_classes
+    f"Classes      : "
+    f"{unique_classes.tolist()}"
+)
+print(
+    f"NoData cells : "
+    f"{nodata_count}"
 )
 
 
-# =========================================================
-# Write output GeoTIFF
-# =========================================================
+# ============================================================
+# REMOVE EXISTING OUTPUT
+# ============================================================
 
-geo_transform = (
-    src_ds.GetGeoTransform()
-)
+if dest_file.exists():
+    dest_file.unlink()
 
-projection = (
-    src_ds.GetProjection()
-)
+
+# ============================================================
+# CREATE OUTPUT GEOTIFF
+# ============================================================
 
 driver = gdal.GetDriverByName(
     "GTiff"
 )
 
-if driver is None:
 
+if driver is None:
     src_ds = None
 
     raise RuntimeError(
@@ -337,8 +619,6 @@ if driver is None:
     )
 
 
-# Land classes are integer categorical values.
-# Byte is sufficient for MODIS IGBP classes.
 dst_ds = driver.Create(
     str(dest_file),
     ncols,
@@ -346,16 +626,18 @@ dst_ds = driver.Create(
     1,
     gdal.GDT_Byte,
     options=[
-        'COMPRESS=DEFLATE'
+        "COMPRESS=DEFLATE",
+        "TILED=YES",
+        "BIGTIFF=IF_SAFER",
     ]
 )
 
-if dst_ds is None:
 
+if dst_ds is None:
     src_ds = None
 
     raise RuntimeError(
-        f"Could not create output file: "
+        "Could not create output MODIS raster:\n"
         f"{dest_file}"
     )
 
@@ -369,97 +651,237 @@ dst_ds.SetProjection(
 )
 
 
-output_band = (
-    dst_ds.GetRasterBand(1)
+output_band = dst_ds.GetRasterBand(
+    1
+)
+
+output_band.SetNoDataValue(
+    float(nodata)
 )
 
 output_band.WriteArray(
-    mode.astype(np.uint8)
+    mode
 )
 
 output_band.FlushCache()
 
 
-# Close raster datasets
+dst_ds.FlushCache()
+
+
+# Close before verification.
 dst_ds = None
 src_ds = None
 
 
-print()
-print(
-    f"Created: {dest_file}"
+# ============================================================
+# VERIFY OUTPUT
+# ============================================================
+
+check_ds = gdal.Open(
+    str(dest_file),
+    gdal.GA_ReadOnly
 )
 
 
-# =========================================================
-# Code provenance
-# =========================================================
+if check_ds is None:
+    raise RuntimeError(
+        "Created MODIS mode raster cannot be opened:\n"
+        f"{dest_file}"
+    )
 
-logPath = modeLandClassPath
-logFolder = '_workflow_log'
 
-(
-    logPath
-    / logFolder
-).mkdir(
+if check_ds.RasterXSize != ncols:
+    check_ds = None
+
+    raise RuntimeError(
+        "Output raster column count changed."
+    )
+
+
+if check_ds.RasterYSize != nrows:
+    check_ds = None
+
+    raise RuntimeError(
+        "Output raster row count changed."
+    )
+
+
+if check_ds.RasterCount != 1:
+    check_ds = None
+
+    raise RuntimeError(
+        "Output representative land-class raster "
+        "must contain exactly one band."
+    )
+
+
+if check_ds.GetGeoTransform() != geo_transform:
+    check_ds = None
+
+    raise RuntimeError(
+        "Output geotransform differs from source."
+    )
+
+
+if check_ds.GetProjection() != projection:
+    check_ds = None
+
+    raise RuntimeError(
+        "Output projection differs from source."
+    )
+
+
+check_band = check_ds.GetRasterBand(
+    1
+)
+
+
+output_nodata = check_band.GetNoDataValue()
+
+
+if output_nodata != float(nodata):
+    check_ds = None
+
+    raise RuntimeError(
+        "Output nodata value was not preserved."
+    )
+
+
+check_array = check_band.ReadAsArray()
+
+
+if check_array is None:
+    check_ds = None
+
+    raise RuntimeError(
+        "Could not read created output raster."
+    )
+
+
+if not np.array_equal(
+    check_array,
+    mode
+):
+    check_ds = None
+
+    raise RuntimeError(
+        "Output land-class values changed "
+        "during GeoTIFF writing."
+    )
+
+
+check_ds = None
+
+
+# ============================================================
+# WORKFLOW LOG
+# ============================================================
+
+log_folder = (
+    mode_land_class_path
+    / "_workflow_log"
+)
+
+
+log_folder.mkdir(
     parents=True,
     exist_ok=True
 )
 
 
-thisFile = 'find_mode_landclass.py'
+this_file = Path(
+    __file__
+).name
 
-try:
 
-    copyfile(
-        thisFile,
-        logPath
-        / logFolder
-        / thisFile
-    )
+copy2(
+    Path(__file__).resolve(),
+    log_folder
+    / this_file
+)
 
-except FileNotFoundError:
 
-    pass
+copy2(
+    CONTROL_FILE,
+    log_folder
+    / CONTROL_FILE.name
+)
 
 
 now = datetime.now()
 
-logFile = (
-    logPath
-    / logFolder
+
+log_file = (
+    log_folder
     / (
-        now.strftime('%Y%m%d')
-        + '_mode_over_years_log.txt'
+        f"{now:%Y%m%d_%H%M%S}_"
+        "create_mode_landclass.txt"
     )
 )
 
 
 with open(
-    logFile,
-    'w'
+    log_file,
+    "w"
 ) as file:
 
     file.write(
-        f"Log generated by {thisFile} on "
-        f"{now.strftime('%Y/%m/%d %H:%M:%S')}\n"
+        f"Log generated by {this_file} "
+        f"on {now:%Y/%m/%d %H:%M:%S}\n"
     )
 
     file.write(
-        f"Source file: {source_file.name}\n"
+        f"Domain: {domain_name}\n"
     )
 
     file.write(
-        f"Number of MODIS bands: "
-        f"{num_bands}\n"
+        f"Control file: {CONTROL_FILE}\n"
     )
 
     file.write(
-        "Created representative/modal "
-        "land-class raster.\n"
+        f"Source raster: {source_file}\n"
+    )
+
+    file.write(
+        f"Output raster: {dest_file}\n"
+    )
+
+    file.write(
+        f"Raster dimensions: "
+        f"{ncols} x {nrows}\n"
+    )
+
+    file.write(
+        f"MODIS bands: {num_bands}\n"
+    )
+
+    file.write(
+        f"NoData value: {nodata}\n"
+    )
+
+    file.write(
+        f"Valid output classes: "
+        f"{unique_classes.tolist()}\n"
+    )
+
+    file.write(
+        f"NoData cells: {nodata_count}\n"
     )
 
 
-print(
-    f"Workflow log: {logFile}"
-)
+# ============================================================
+# FINISH
+# ============================================================
+
+print()
+print("=" * 70)
+print("MODIS REPRESENTATIVE LAND-CLASS CREATION COMPLETED")
+print("=" * 70)
+print(f"Domain       : {domain_name}")
+print(f"Bands used   : {num_bands}")
+print(f"Classes      : {unique_classes.tolist()}")
+print(f"NoData value : {nodata}")
+print(f"NoData cells : {nodata_count}")
+print(f"Output       : {dest_file}")
+print(f"Workflow log : {log_file}")

@@ -1,69 +1,91 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # coding: utf-8
 
-# Remap prepared ERA5 forcing to SUMMA HRUs using the reusable
-# EASYMORE remapping weights created in Step 13.
-#
-# Usage:
-#
-#   One month:
-#       python 2a_remap_all_ERA5.py YEAR MONTH
-#
-#   Example:
-#       python 2a_remap_all_ERA5.py 1950 1
-#
-#   No arguments:
-#       Processes the complete forcing_raw_time period serially.
-#
-# For HPC processing, YEAR and MONTH are supplied by a SLURM array.
-#
-# IMPORTANT
-# ---------
-# The original MERIT catchment shapefile is treated as source data only.
-#
-# EASYMORE must use the prepared CWARHM catchment created during Stage 00:
-#
-#   <root_path>/domain_<domain_name>/shapefiles/catchment/
-#
-# This prepared shapefile contains the required:
-#
-#   HRU_ID
-#   center_lat
-#   center_lon
-#
-# fields and has a persisted EPSG:4326 CRS.
+"""
+Remap prepared ERA5 forcing to SUMMA HRUs using reusable
+EASYMORE remapping weights created by 1a_remap_ERA5.py.
 
-from pathlib import Path
-from shutil import rmtree
-from datetime import datetime
+This script is designed for the CWARHM multibasin workflow.
+
+IMPORTANT
+---------
+The script reads the supplied domain-specific control file directly.
+
+It does NOT read or modify:
+
+    control_active.txt
+
+The EASYMORE target is the prepared Stage-00 CWARHM catchment:
+
+    <root_path>/domain_<domain_name>/shapefiles/catchment/
+
+Usage
+-----
+
+Process one month:
+
+    python 2a_remap_all_ERA5.py \
+    /path/to/control_DOMAIN.txt \
+    YEAR MONTH
+
+Example:
+
+    python 2a_remap_all_ERA5.py \
+    /work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin/0_control_files/control_MERIT_717.txt \
+    1950 2
+
+Process the complete forcing_raw_time period serially:
+
+    python 2a_remap_all_ERA5.py \
+    /path/to/control_DOMAIN.txt
+
+For production processing, the YEAR and MONTH mode should normally
+be called from the SLURM array script.
+"""
+
 import sys
+from pathlib import Path
+from shutil import rmtree, copy2
+from datetime import datetime
 
 import easymore
 import geopandas as gpd
 import numpy as np
+import xarray as xr
 
 
 # ============================================================
-# PROJECT PATHS
+# INPUT ARGUMENTS
 # ============================================================
 
-script_dir = Path(__file__).resolve().parent
-cwarhm_root = script_dir.parent.parent
+if len(sys.argv) not in (2, 4):
 
-control_file = (
-    cwarhm_root
-    / "0_control_files"
-    / "control_active.txt"
-)
+    raise SystemExit(
+        "Usage:\n\n"
+        "One month:\n"
+        "  python 2a_remap_all_ERA5.py "
+        "/path/to/control_DOMAIN.txt YEAR MONTH\n\n"
+        "Complete period serially:\n"
+        "  python 2a_remap_all_ERA5.py "
+        "/path/to/control_DOMAIN.txt"
+    )
 
-if not control_file.exists():
+
+CONTROL_FILE = Path(
+    sys.argv[1]
+).resolve()
+
+
+if not CONTROL_FILE.exists():
+
     raise FileNotFoundError(
-        f"Control file not found:\n{control_file}"
+        f"Control file not found:\n"
+        f"{CONTROL_FILE}"
     )
 
 
 # ============================================================
-# CONTROL FILE
+# CONTROL-FILE FUNCTIONS
 # ============================================================
 
 def read_from_control(file, setting):
@@ -84,36 +106,50 @@ def read_from_control(file, setting):
             ):
                 continue
 
-            left, right = stripped.split("|", 1)
+            left, right = stripped.split(
+                "|",
+                1
+            )
 
             if left.strip() != setting:
                 continue
 
-            return (
+            value = (
                 right
                 .split("#", 1)[0]
                 .strip()
             )
 
+            if value == "":
+
+                raise ValueError(
+                    f"Setting '{setting}' is empty in:\n"
+                    f"{file}"
+                )
+
+            return value
+
+
     raise ValueError(
-        f"Setting not found in control file: {setting}"
+        f"Setting '{setting}' not found in:\n"
+        f"{file}"
     )
 
 
 def make_default_path(suffix):
     """
-    Construct a standard path inside domain_<domain_name>.
+    Construct a standard domain path.
     """
 
     root_path = Path(
         read_from_control(
-            control_file,
+            CONTROL_FILE,
             "root_path"
         )
     )
 
     domain_name = read_from_control(
-        control_file,
+        CONTROL_FILE,
         "domain_name"
     )
 
@@ -129,36 +165,75 @@ def make_default_path(suffix):
 # ============================================================
 
 domain = read_from_control(
-    control_file,
+    CONTROL_FILE,
     "domain_name"
 )
 
-years = read_from_control(
-    control_file,
+
+forcing_raw_time = read_from_control(
+    CONTROL_FILE,
     "forcing_raw_time"
 )
 
-start_year, end_year = [
-    int(x.strip())
-    for x in years.split(",")
-]
+
+try:
+
+    start_year, end_year = [
+        int(value.strip())
+        for value in forcing_raw_time.split(",")
+    ]
+
+except Exception as exc:
+
+    raise RuntimeError(
+        "forcing_raw_time must contain:\n"
+        "START_YEAR,END_YEAR\n\n"
+        f"Found: {forcing_raw_time}"
+    ) from exc
+
+
+if start_year > end_year:
+
+    raise RuntimeError(
+        "forcing_raw_time has start year "
+        "greater than end year."
+    )
 
 
 # ============================================================
-# FORCING PATHS
+# FORCING DIRECTORIES
 # ============================================================
 
 input_dir = make_default_path(
     "forcing/1_raw_data/ERA5_prepared"
 )
 
+
 output_dir = make_default_path(
     "forcing/3_basin_averaged_data/ERA5"
 )
 
+
 remap_dir = make_default_path(
     "shapefiles/catchment_intersection/"
     "with_forcing/ERA5"
+)
+
+
+temp_root = make_default_path(
+    "forcing/3_temp_easymore/ERA5"
+)
+
+
+output_dir.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+
+temp_root.mkdir(
+    parents=True,
+    exist_ok=True
 )
 
 
@@ -167,9 +242,10 @@ remap_dir = make_default_path(
 # ============================================================
 
 forcing_shape_path = read_from_control(
-    control_file,
+    CONTROL_FILE,
     "forcing_shape_path"
 )
+
 
 if forcing_shape_path == "default":
 
@@ -185,9 +261,10 @@ else:
 
 
 forcing_shape_name = read_from_control(
-    control_file,
+    CONTROL_FILE,
     "forcing_era5_shape_name"
 )
+
 
 forcing_shape_file = (
     forcing_shape_path
@@ -195,25 +272,32 @@ forcing_shape_file = (
 )
 
 
-# ============================================================
-# PREPARED CWARHM CATCHMENT SHAPEFILE
-# ============================================================
+source_lat_field = read_from_control(
+    CONTROL_FILE,
+    "forcing_shape_lat_name"
+)
 
-# Do NOT use catchment_shp_path here.
-#
-# catchment_shp_path points to the original source catchment,
-# such as the MERIT Pfaf-3 archive.
-#
-# EASYMORE must use the prepared Stage-00 working copy.
+
+source_lon_field = read_from_control(
+    CONTROL_FILE,
+    "forcing_shape_lon_name"
+)
+
+
+# ============================================================
+# PREPARED CWARHM CATCHMENT
+# ============================================================
 
 catchment_name = read_from_control(
-    control_file,
+    CONTROL_FILE,
     "catchment_shp_name"
 )
+
 
 catchment_path = make_default_path(
     "shapefiles/catchment"
 )
+
 
 catchment_file = (
     catchment_path
@@ -221,34 +305,32 @@ catchment_file = (
 )
 
 
-# ============================================================
-# TARGET HRU FIELD NAMES
-# ============================================================
-
 target_hru_id = read_from_control(
-    control_file,
+    CONTROL_FILE,
     "catchment_shp_hruid"
 )
 
+
 target_lat = read_from_control(
-    control_file,
+    CONTROL_FILE,
     "catchment_shp_lat"
 )
 
+
 target_lon = read_from_control(
-    control_file,
+    CONTROL_FILE,
     "catchment_shp_lon"
 )
 
 
 # ============================================================
-# CHECK INPUTS
+# VALIDATE INPUT DIRECTORIES / FILES
 # ============================================================
 
 if not input_dir.exists():
 
     raise FileNotFoundError(
-        f"Prepared ERA5 directory not found:\n"
+        "Prepared ERA5 directory not found:\n"
         f"{input_dir}"
     )
 
@@ -256,7 +338,7 @@ if not input_dir.exists():
 if not forcing_shape_file.exists():
 
     raise FileNotFoundError(
-        f"ERA5 forcing grid not found:\n"
+        "ERA5 forcing-grid shapefile not found:\n"
         f"{forcing_shape_file}"
     )
 
@@ -266,8 +348,6 @@ if not catchment_file.exists():
     raise FileNotFoundError(
         "Prepared CWARHM catchment shapefile not found:\n"
         f"{catchment_file}\n\n"
-        "This script must use the Stage-00 prepared catchment, "
-        "not the original MERIT source shapefile.\n"
         "Run Stage 00 first."
     )
 
@@ -275,108 +355,107 @@ if not catchment_file.exists():
 if not remap_dir.exists():
 
     raise FileNotFoundError(
-        "ERA5 remapping directory not found:\n"
+        "ERA5 reusable remapping directory not found:\n"
         f"{remap_dir}\n\n"
-        "Run Step 13 first."
+        "Run 1a_remap_ERA5.py first."
     )
-
-
-output_dir.mkdir(
-    parents=True,
-    exist_ok=True
-)
 
 
 # ============================================================
 # VALIDATE PREPARED CATCHMENT
 # ============================================================
 
-catchment_check = gpd.read_file(
+catchment = gpd.read_file(
     catchment_file,
     engine="fiona"
 )
 
 
-if len(catchment_check) == 0:
+if len(catchment) == 0:
 
     raise RuntimeError(
         "Prepared CWARHM catchment contains no features."
     )
 
 
-if catchment_check.crs is None:
+if catchment.crs is None:
 
     raise RuntimeError(
         "Prepared CWARHM catchment has no CRS:\n"
-        f"{catchment_file}\n\n"
-        "Stage 00 should write this file with EPSG:4326."
+        f"{catchment_file}"
     )
 
 
-catchment_epsg = (
-    catchment_check.crs.to_epsg()
-)
+catchment_epsg = catchment.crs.to_epsg()
 
 
 if catchment_epsg != 4326:
 
     raise RuntimeError(
-        "Prepared CWARHM catchment is not EPSG:4326.\n\n"
-        f"File: {catchment_file}\n"
-        f"CRS : {catchment_check.crs}"
+        "Prepared CWARHM catchment must be EPSG:4326.\n\n"
+        f"Found: {catchment.crs}\n"
+        f"File : {catchment_file}"
     )
 
 
 required_target_fields = [
     target_hru_id,
     target_lat,
-    target_lon
+    target_lon,
 ]
 
 
 missing_target_fields = [
     field
     for field in required_target_fields
-    if field not in catchment_check.columns
+    if field not in catchment.columns
 ]
 
 
 if missing_target_fields:
 
     raise RuntimeError(
-        "Prepared CWARHM catchment is missing "
-        "required EASYMORE field(s):\n"
-        + ", ".join(missing_target_fields)
-        + "\n\n"
-        + f"Available fields:\n"
-        + f"{catchment_check.columns.tolist()}"
+        "Prepared catchment is missing required "
+        "EASYMORE field(s):\n"
+        + "\n".join(
+            f"  {field}"
+            for field in missing_target_fields
+        )
     )
 
 
-if catchment_check[target_hru_id].isna().any():
+if catchment[target_hru_id].isna().any():
 
     raise RuntimeError(
         f"{target_hru_id} contains missing values."
     )
 
 
-if catchment_check[target_hru_id].duplicated().any():
+if catchment[target_hru_id].duplicated().any():
 
     raise RuntimeError(
         f"{target_hru_id} contains duplicate values."
     )
 
 
+expected_hru_ids = (
+    catchment[target_hru_id]
+    .astype(np.int64)
+    .to_numpy()
+)
+
+
 for field in [
     target_lat,
-    target_lon
+    target_lon,
 ]:
 
     values = (
-        catchment_check[field]
+        catchment[field]
         .astype(float)
         .to_numpy()
     )
+
 
     if not np.all(
         np.isfinite(values)
@@ -387,26 +466,49 @@ for field in [
         )
 
 
-print()
-print("============================================================")
-print("ERA5 HRU REMAPPING")
-print("============================================================")
+# ============================================================
+# VALIDATE ERA5 SOURCE GRID
+# ============================================================
 
-print(
-    f"Domain            : {domain}"
+source_grid = gpd.read_file(
+    forcing_shape_file,
+    engine="fiona"
 )
 
-print(
-    f"Prepared catchment: {catchment_file}"
-)
 
-print(
-    f"Catchment CRS     : {catchment_check.crs}"
-)
+if len(source_grid) == 0:
 
-print(
-    f"HRUs              : {len(catchment_check)}"
-)
+    raise RuntimeError(
+        "ERA5 forcing-grid shapefile contains no features."
+    )
+
+
+if source_grid.crs is None:
+
+    raise RuntimeError(
+        "ERA5 forcing-grid shapefile has no CRS."
+    )
+
+
+if source_grid.crs.to_epsg() != 4326:
+
+    raise RuntimeError(
+        "ERA5 forcing grid must use EPSG:4326.\n\n"
+        f"Found: {source_grid.crs}"
+    )
+
+
+for field in [
+    source_lat_field,
+    source_lon_field,
+]:
+
+    if field not in source_grid.columns:
+
+        raise RuntimeError(
+            "ERA5 forcing grid is missing field:\n"
+            f"{field}"
+        )
 
 
 # ============================================================
@@ -418,7 +520,7 @@ case_name = (
 )
 
 
-remap_files = list(
+remap_files = sorted(
     remap_dir.glob(
         f"{case_name}_remapping_file_*.csv"
     )
@@ -430,28 +532,243 @@ if not remap_files:
     raise RuntimeError(
         "No ERA5 EASYMORE remapping CSV found in:\n"
         f"{remap_dir}\n\n"
-        "Run Step 13 first."
+        "Run 1a_remap_ERA5.py first."
     )
 
 
-# Use the most recently generated mapping if Step 13
-# has been run more than once.
+# If several mappings exist, use the newest one.
 remap_csv = max(
     remap_files,
-    key=lambda f: f.stat().st_mtime
+    key=lambda path: path.stat().st_mtime
 )
 
 
+# ============================================================
+# ERA5 VARIABLES
+# ============================================================
+
+ERA5_VARIABLES = [
+    "airpres",
+    "LWRadAtm",
+    "SWRadAtm",
+    "spechum",
+    "windspd",
+]
+
+
+# ============================================================
+# REPORT GLOBAL SETTINGS
+# ============================================================
+
+print()
+print("=" * 70)
+print("ERA5 MONTHLY HRU REMAPPING")
+print("=" * 70)
+
+print()
+print(f"Domain            : {domain}")
+print(f"Control file      : {CONTROL_FILE}")
+print(f"Forcing period    : {start_year} - {end_year}")
+print(f"Prepared catchment: {catchment_file}")
+print(f"Catchment CRS     : {catchment.crs}")
+print(f"Target HRUs       : {len(catchment):,}")
+print(f"ERA5 grid         : {forcing_shape_file}")
+print(f"Source grid cells : {len(source_grid):,}")
+print(f"Remapping CSV     : {remap_csv}")
+print(f"Output directory  : {output_dir}")
+
+print()
 print(
-    f"ERA5 remapping CSV: {remap_csv}"
+    "Variables          : "
+    + ", ".join(
+        ERA5_VARIABLES
+    )
 )
+
+
+# ============================================================
+# OUTPUT VALIDATION
+# ============================================================
+
+def validate_output(
+    output_file,
+    source_file,
+):
+
+    if not output_file.exists():
+
+        raise RuntimeError(
+            "Expected ERA5 remapped output was not created:\n"
+            f"{output_file}"
+        )
+
+
+    with xr.open_dataset(
+        source_file
+    ) as source_ds:
+
+        expected_time_steps = (
+            source_ds.sizes.get(
+                "time"
+            )
+        )
+
+
+    with xr.open_dataset(
+        output_file
+    ) as ds:
+
+        if "hru" not in ds.sizes:
+
+            raise RuntimeError(
+                "Remapped ERA5 output has no 'hru' dimension."
+            )
+
+
+        if ds.sizes["hru"] != len(
+            expected_hru_ids
+        ):
+
+            raise RuntimeError(
+                "Unexpected HRU count in remapped ERA5 output.\n\n"
+                f"Expected: {len(expected_hru_ids)}\n"
+                f"Found   : {ds.sizes['hru']}"
+            )
+
+
+        if "time" not in ds.sizes:
+
+            raise RuntimeError(
+                "Remapped ERA5 output has no time dimension."
+            )
+
+
+        if (
+            expected_time_steps is not None
+            and ds.sizes["time"] != expected_time_steps
+        ):
+
+            raise RuntimeError(
+                "ERA5 remapped time-step count differs "
+                "from the prepared source file.\n\n"
+                f"Expected: {expected_time_steps}\n"
+                f"Found   : {ds.sizes['time']}"
+            )
+
+
+        if "hruId" not in ds.variables:
+
+            raise RuntimeError(
+                "hruId variable is missing from "
+                "remapped ERA5 output."
+            )
+
+
+        output_hru_ids = (
+            np.asarray(
+                ds["hruId"].values
+            )
+            .astype(np.int64)
+        )
+
+
+        if not np.array_equal(
+            output_hru_ids,
+            expected_hru_ids
+        ):
+
+            raise RuntimeError(
+                "HRU order in ERA5 remapped output "
+                "does not match the prepared catchment."
+            )
+
+
+        missing_variables = [
+            variable
+            for variable in ERA5_VARIABLES
+            if variable not in ds.variables
+        ]
+
+
+        if missing_variables:
+
+            raise RuntimeError(
+                "Remapped ERA5 output is missing variable(s): "
+                + ", ".join(
+                    missing_variables
+                )
+            )
+
+
+        missing_counts = {}
+
+        value_ranges = {}
+
+
+        for variable in ERA5_VARIABLES:
+
+            data = ds[
+                variable
+            ]
+
+
+            missing_counts[
+                variable
+            ] = int(
+                data
+                .isnull()
+                .sum()
+                .values
+            )
+
+
+            if (
+                missing_counts[
+                    variable
+                ]
+                < data.size
+            ):
+
+                value_ranges[
+                    variable
+                ] = (
+                    float(
+                        data.min(
+                            skipna=True
+                        )
+                    ),
+                    float(
+                        data.max(
+                            skipna=True
+                        )
+                    )
+                )
+
+            else:
+
+                value_ranges[
+                    variable
+                ] = (
+                    np.nan,
+                    np.nan
+                )
+
+
+    return (
+        expected_time_steps,
+        missing_counts,
+        value_ranges
+    )
 
 
 # ============================================================
 # MONTH PROCESSOR
 # ============================================================
 
-def remap_month(year, month):
+def remap_month(
+    year,
+    month,
+):
 
     ym = (
         f"{year}{month:02d}"
@@ -464,14 +781,6 @@ def remap_month(year, month):
     )
 
 
-    if not forcing_file.exists():
-
-        raise FileNotFoundError(
-            "Prepared ERA5 forcing file not found:\n"
-            f"{forcing_file}"
-        )
-
-
     expected_output = (
         output_dir
         / (
@@ -481,40 +790,89 @@ def remap_month(year, month):
     )
 
 
+    if not forcing_file.exists():
+
+        raise FileNotFoundError(
+            "Prepared ERA5 forcing file not found:\n"
+            f"{forcing_file}"
+        )
+
+
+    print()
+    print("-" * 70)
+    print(f"ERA5 REMAPPING: {ym}")
+    print("-" * 70)
+
+    print(f"Input      : {forcing_file}")
+    print(f"Output     : {expected_output}")
+    print(f"Remap CSV  : {remap_csv}")
+    print(f"Target HRUs: {len(expected_hru_ids)}")
+
+
+    # --------------------------------------------------------
+    # EXISTING OUTPUT
+    # --------------------------------------------------------
+
     if expected_output.exists():
 
+        print()
         print(
-            f"{ym}: output already exists; skipping."
+            "Output already exists. "
+            "Validating existing file..."
         )
+
+
+        (
+            expected_time_steps,
+            missing_counts,
+            value_ranges,
+        ) = validate_output(
+            expected_output,
+            forcing_file,
+        )
+
+
+        print(
+            "Existing output passed validation."
+        )
+
+
+        print(
+            f"Time steps : {expected_time_steps}"
+        )
+
+
+        print(
+            "Missing values:"
+        )
+
+
+        for variable in ERA5_VARIABLES:
+
+            print(
+                f"  {variable:<10}: "
+                f"{missing_counts[variable]}"
+            )
+
 
         return
 
 
-    print()
-    print("=" * 60)
-    print(
-        f"ERA5 REMAPPING: {ym}"
-    )
-    print("=" * 60)
+    # --------------------------------------------------------
+    # UNIQUE TEMP DIRECTORY FOR THIS MONTH
+    # --------------------------------------------------------
 
-    print(
-        f"Input : {forcing_file}"
-    )
-
-    print(
-        f"Output: {output_dir}"
-    )
-
-    print(
-        f"Target: {catchment_file}"
+    temp_dir = (
+        temp_root
+        / ym
     )
 
 
-    # Each SLURM array task uses an independent
-    # temporary EASYMORE directory.
-    temp_dir = make_default_path(
-        f"forcing/3_temp_easymore/ERA5/{ym}"
-    )
+    if temp_dir.exists():
+
+        rmtree(
+            temp_dir
+        )
 
 
     temp_dir.mkdir(
@@ -523,6 +881,10 @@ def remap_month(year, month):
     )
 
 
+    # --------------------------------------------------------
+    # EASYMORE
+    # --------------------------------------------------------
+
     esmr = easymore.Easymore()
 
 
@@ -530,50 +892,52 @@ def remap_month(year, month):
         case_name
     )
 
+
     esmr.author_name = (
         "NWAM-SUMMA workflow"
     )
 
 
-    # --------------------------------------------------------
+    esmr.license = (
+        "Copernicus ERA5 data"
+    )
+
+
     # Variables
-    # --------------------------------------------------------
 
-    esmr.var_names = [
-        "airpres",
-        "LWRadAtm",
-        "SWRadAtm",
-        "spechum",
-        "windspd"
-    ]
+    esmr.var_names = (
+        ERA5_VARIABLES
+    )
 
-    esmr.var_lat = "latitude"
-    esmr.var_lon = "longitude"
-    esmr.var_time = "time"
+    esmr.var_lat = (
+        "latitude"
+    )
+
+    esmr.var_lon = (
+        "longitude"
+    )
+
+    esmr.var_time = (
+        "time"
+    )
 
 
-    # --------------------------------------------------------
     # Source forcing grid
-    # --------------------------------------------------------
 
     esmr.source_shp = str(
         forcing_shape_file
     )
 
-    esmr.source_shp_lat = read_from_control(
-        control_file,
-        "forcing_shape_lat_name"
+    esmr.source_shp_lat = (
+        source_lat_field
     )
 
-    esmr.source_shp_lon = read_from_control(
-        control_file,
-        "forcing_shape_lon_name"
+    esmr.source_shp_lon = (
+        source_lon_field
     )
 
 
-    # --------------------------------------------------------
     # Target HRUs
-    # --------------------------------------------------------
 
     esmr.target_shp = str(
         catchment_file
@@ -592,26 +956,32 @@ def remap_month(year, month):
     )
 
 
-    # --------------------------------------------------------
-    # EASYMORE
-    # --------------------------------------------------------
+    # Source NetCDF
 
     esmr.source_nc = str(
         forcing_file
     )
 
 
+    # Directories
+
     esmr.output_dir = (
-        str(output_dir)
+        str(
+            output_dir
+        )
         + "/"
     )
 
 
     esmr.temp_dir = (
-        str(temp_dir)
+        str(
+            temp_dir
+        )
         + "/"
     )
 
+
+    # SUMMA output structure
 
     esmr.remapped_dim_id = (
         "hru"
@@ -626,28 +996,43 @@ def remap_month(year, month):
         "f4"
     ]
 
+
     esmr.fill_value_list = [
         "-9999"
     ]
 
 
-    esmr.save_csv = False
+    esmr.save_csv = (
+        False
+    )
 
 
-    # Reuse the spatial mapping created in Step 13.
+    # Reuse the Step-1a mapping.
+
     esmr.remap_csv = str(
         remap_csv
     )
 
 
-    esmr.sort_ID = False
+    # Preserve the prepared catchment order.
 
-    esmr.overwrite_existing_remap = False
+    esmr.sort_ID = (
+        False
+    )
+
+
+    esmr.overwrite_existing_remap = (
+        False
+    )
 
 
     # --------------------------------------------------------
     # RUN
     # --------------------------------------------------------
+
+    print()
+    print("Running EASYMORE...")
+
 
     esmr.nc_remapper()
 
@@ -658,26 +1043,45 @@ def remap_month(year, month):
 
     if not expected_output.exists():
 
-        # EASYMORE naming can vary slightly between versions.
-        # Look for a remapped file containing this YYYYMM.
-        alternatives = list(
+        alternatives = sorted(
             output_dir.glob(
                 f"*{ym}*.nc"
             )
         )
 
-        if not alternatives:
 
-            raise RuntimeError(
-                "EASYMORE completed without producing "
-                "the expected ERA5 remapped NetCDF.\n\n"
-                f"Expected approximately:\n"
-                f"{expected_output}"
+        alternative_text = (
+            "\n".join(
+                str(path)
+                for path in alternatives
             )
+            if alternatives
+            else "None"
+        )
+
+
+        raise RuntimeError(
+            "EASYMORE completed but the expected "
+            "ERA5 output was not created.\n\n"
+            f"Expected:\n"
+            f"{expected_output}\n\n"
+            f"Other files containing {ym}:\n"
+            f"{alternative_text}"
+        )
+
+
+    (
+        expected_time_steps,
+        missing_counts,
+        value_ranges,
+    ) = validate_output(
+        expected_output,
+        forcing_file,
+    )
 
 
     # --------------------------------------------------------
-    # CLEAN TEMPORARY DIRECTORY
+    # REMOVE TEMP DIRECTORY
     # --------------------------------------------------------
 
     try:
@@ -686,13 +1090,21 @@ def remap_month(year, month):
             temp_dir
         )
 
-    except OSError:
+    except OSError as error:
 
-        pass
+        print()
+        print(
+            "WARNING: Could not remove temporary "
+            "EASYMORE directory:"
+        )
+
+        print(
+            error
+        )
 
 
     # --------------------------------------------------------
-    # LOG
+    # WORKFLOW LOG
     # --------------------------------------------------------
 
     log_dir = (
@@ -707,49 +1119,147 @@ def remap_month(year, month):
     )
 
 
+    timestamp = datetime.now()
+
+
     log_file = (
         log_dir
-        / f"ERA5_remap_{ym}.txt"
+        / (
+            f"{timestamp:%Y%m%d_%H%M%S}_"
+            f"ERA5_remap_{ym}.txt"
+        )
     )
 
 
     with open(
         log_file,
         "w"
-    ) as f:
+    ) as file:
 
-        f.write(
-            "ERA5 remapping completed "
-            f"{datetime.now():%Y-%m-%d %H:%M:%S}\n"
+        file.write(
+            "ERA5 monthly HRU remapping completed "
+            f"{timestamp:%Y-%m-%d %H:%M:%S}\n"
         )
 
-        f.write(
+        file.write(
             f"Domain: {domain}\n"
         )
 
-        f.write(
+        file.write(
+            f"Control file: {CONTROL_FILE}\n"
+        )
+
+        file.write(
             f"Month: {ym}\n"
         )
 
-        f.write(
+        file.write(
             f"Input: {forcing_file}\n"
         )
 
-        f.write(
+        file.write(
+            f"Output: {expected_output}\n"
+        )
+
+        file.write(
             f"Target catchment: {catchment_file}\n"
         )
 
-        f.write(
-            f"Target CRS: {catchment_check.crs}\n"
+        file.write(
+            f"Target HRUs: {len(expected_hru_ids)}\n"
         )
 
-        f.write(
+        file.write(
+            f"Target CRS: {catchment.crs}\n"
+        )
+
+        file.write(
             f"Remapping CSV: {remap_csv}\n"
         )
 
+        file.write(
+            f"Time steps: {expected_time_steps}\n"
+        )
+
+        file.write(
+            f"Missing values: {missing_counts}\n"
+        )
+
+        file.write(
+            f"Value ranges: {value_ranges}\n"
+        )
+
+        file.write(
+            "Shared control_active.txt used: no\n"
+        )
+
+
+    # --------------------------------------------------------
+    # REPORT
+    # --------------------------------------------------------
+
+    print()
+    print(
+        "Validation:"
+    )
 
     print(
-        f"{ym}: completed."
+        f"  HRUs       : "
+        f"{len(expected_hru_ids)}"
+    )
+
+    print(
+        f"  Time steps : "
+        f"{expected_time_steps}"
+    )
+
+    print(
+        "  HRU order  : preserved"
+    )
+
+
+    print()
+    print(
+        "Missing values:"
+    )
+
+
+    for variable in ERA5_VARIABLES:
+
+        print(
+            f"  {variable:<10}: "
+            f"{missing_counts[variable]}"
+        )
+
+
+    print()
+    print(
+        "Value ranges:"
+    )
+
+
+    for variable in ERA5_VARIABLES:
+
+        minimum, maximum = (
+            value_ranges[
+                variable
+            ]
+        )
+
+        print(
+            f"  {variable:<10}: "
+            f"{minimum:.6g} to "
+            f"{maximum:.6g}"
+        )
+
+
+    print()
+    print(
+        f"{ym}: completed successfully."
+    )
+
+    print(
+        f"Workflow log: {log_file}"
     )
 
 
@@ -757,16 +1267,16 @@ def remap_month(year, month):
 # COMMAND-LINE MODE
 # ============================================================
 
-if len(sys.argv) == 3:
+if len(sys.argv) == 4:
 
     try:
 
-        year = int(
-            sys.argv[1]
+        selected_year = int(
+            sys.argv[2]
         )
 
-        month = int(
-            sys.argv[2]
+        selected_month = int(
+            sys.argv[3]
         )
 
     except ValueError as exc:
@@ -776,21 +1286,23 @@ if len(sys.argv) == 3:
         ) from exc
 
 
-    if (
-        year < start_year
-        or year > end_year
+    if not (
+        start_year
+        <= selected_year
+        <= end_year
     ):
 
         raise ValueError(
-            f"Year {year} is outside "
+            f"Year {selected_year} is outside "
             f"forcing_raw_time "
-            f"{start_year},{end_year}"
+            f"{start_year},{end_year}."
         )
 
 
-    if (
-        month < 1
-        or month > 12
+    if not (
+        1
+        <= selected_month
+        <= 12
     ):
 
         raise ValueError(
@@ -799,20 +1311,24 @@ if len(sys.argv) == 3:
 
 
     remap_month(
-        year,
-        month
+        selected_year,
+        selected_month,
     )
 
 
 # ============================================================
-# SERIAL FALLBACK
+# SERIAL MODE
 # ============================================================
 
-elif len(sys.argv) == 1:
+else:
+
+    print()
+    print(
+        "No YEAR/MONTH supplied."
+    )
 
     print(
-        "No YEAR MONTH arguments supplied. "
-        "Running complete period serially."
+        "Processing complete forcing period serially."
     )
 
 
@@ -828,15 +1344,25 @@ elif len(sys.argv) == 1:
 
             remap_month(
                 year,
-                month
+                month,
             )
 
 
-else:
+# ============================================================
+# FINISH
+# ============================================================
 
-    raise SystemExit(
-        "Usage:\n"
-        "  python 2a_remap_all_ERA5.py\n"
-        "or\n"
-        "  python 2a_remap_all_ERA5.py YEAR MONTH"
-    )
+print()
+print("=" * 70)
+print("ERA5 MONTHLY HRU REMAPPING COMPLETED")
+print("=" * 70)
+
+print(f"Domain       : {domain}")
+print(f"Control file : {CONTROL_FILE}")
+print(f"Output       : {output_dir}")
+print(f"Remap CSV    : {remap_csv}")
+
+print()
+print(
+    "No control_active.txt was created or modified."
+)

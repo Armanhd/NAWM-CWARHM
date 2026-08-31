@@ -1,86 +1,242 @@
 #!/bin/bash
 
-# Script to unpack downloaded MERIT data.
+# Unpack MERIT-Hydro elevation archives for one CWARHM domain.
+#
+# The domain-specific control file is supplied explicitly.
+# No shared control_active.txt is used.
+#
+# Usage:
+#
+# bash unpack_merit_hydro_dem.sh /path/to/control_DOMAIN.txt
+#
+# Example:
+#
+# bash unpack_merit_hydro_dem.sh \
+# /work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin/0_control_files/control_MERIT_717.txt
+
+set -euo pipefail
 
 
-#---------------------------------
-# Specify settings
-#---------------------------------
+# ============================================================
+# CONTROL FILE
+# ============================================================
 
-# --- Location of raw data
-dest_line=$(grep -m 1 "^parameter_dem_raw_path" ../../../0_control_files/control_active.txt) # full settings line
-source_path=$(echo ${dest_line##*|})   # removing the leading text up to '|'
-source_path=$(echo ${source_path%%#*}) # removing the trailing comments, if any are present
+if [ "$#" -ne 1 ]; then
+    echo "Usage:"
+    echo "bash unpack_merit_hydro_dem.sh /path/to/control_DOMAIN.txt"
+    exit 1
+fi
 
-# Specify the default path if needed
+CONTROL=$(realpath "$1")
+
+if [ ! -f "$CONTROL" ]; then
+    echo "ERROR: Control file not found:"
+    echo "$CONTROL"
+    exit 1
+fi
+
+
+# ============================================================
+# CONTROL-FILE FUNCTION
+# ============================================================
+
+read_control() {
+
+    local setting="$1"
+    local value
+
+    value=$(
+        awk -F'|' -v key="$setting" '
+        /^[[:space:]]*#/ { next }
+        {
+            left=$1
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", left)
+
+            if (left == key) {
+                right=$2
+                sub(/#.*/, "", right)
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", right)
+                print right
+                exit
+            }
+        }
+        ' "$CONTROL"
+    )
+
+    if [ -z "$value" ]; then
+        echo "ERROR: Setting not found or empty: $setting" >&2
+        exit 1
+    fi
+
+    printf '%s\n' "$value"
+}
+
+
+# ============================================================
+# DOMAIN SETTINGS
+# ============================================================
+
+root_path=$(read_control "root_path")
+domain_name=$(read_control "domain_name")
+
+
+# ============================================================
+# SOURCE PATH
+# ============================================================
+
+source_path=$(read_control "parameter_dem_raw_path")
+
 if [ "$source_path" = "default" ]; then
-  
- # Get the root path and append the appropriate install directories
- root_line=$(grep -m 1 "^root_path" ../../../0_control_files/control_active.txt)
- root_path=$(echo ${root_line##*|}) 
- root_path=$(echo ${root_path%%#*})
 
- # domain name
- domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
- domain_name=$(echo ${domain_line##*|}) 
- domain_name=$(echo ${domain_name%%#*})
- 
- # source path
- source_path="${root_path}/domain_${domain_name}/parameters/dem/1_MERIT_hydro_raw_data"
+    source_path="${root_path}/domain_${domain_name}/parameters/dem/1_MERIT_hydro_raw_data"
 
 fi
 
-# --- Location where converted data needs to go
-dest_line=$(grep -m 1 "^parameter_dem_unpack_path" ../../../0_control_files/control_active.txt) # full settings line
-dest_path=$(echo ${dest_line##*|})   # removing the leading text up to '|'
-dest_path=$(echo ${dest_path%%#*}) # removing the trailing comments, if any are present
 
-# Specify the default path if needed
+# ============================================================
+# DESTINATION PATH
+# ============================================================
+
+dest_path=$(read_control "parameter_dem_unpack_path")
+
 if [ "$dest_path" = "default" ]; then
-  
- # Get the root path and append the appropriate install directories
- root_line=$(grep -m 1 "^root_path" ../../../0_control_files/control_active.txt)
- root_path=$(echo ${root_line##*|}) 
- root_path=$(echo ${root_path%%#*})
 
- # domain name
- domain_line==$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
- domain_name=$(echo ${domain_line##*|}) 
- domain_name=$(echo ${domain_name%%#*})
- 
- # destination path
- dest_path="${root_path}/domain_${domain_name}/parameters/dem/2_MERIT_hydro_unpacked_data"
+    dest_path="${root_path}/domain_${domain_name}/parameters/dem/2_MERIT_hydro_unpacked_data"
+
 fi
 
-# Make destination directory 
-mkdir -p $dest_path
+
+# ============================================================
+# VALIDATE PATHS
+# ============================================================
+
+if [ ! -d "$source_path" ]; then
+    echo "ERROR: MERIT-Hydro raw-data directory not found:"
+    echo "$source_path"
+    exit 1
+fi
+
+mkdir -p "$dest_path"
 
 
-#---------------------------------
-# Unpack the data
-#---------------------------------
+# ============================================================
+# REPORT
+# ============================================================
 
-for file in $source_path/*.tar; do
- tar xf "$file" -C $dest_path
+echo
+echo "======================================================================"
+echo "UNPACK MERIT-HYDRO ELEVATION"
+echo "======================================================================"
+echo
+echo "Domain      : $domain_name"
+echo "Control file: $CONTROL"
+echo "Source      : $source_path"
+echo "Destination : $dest_path"
+echo
+
+
+# ============================================================
+# FIND INPUT ARCHIVES
+# ============================================================
+
+shopt -s nullglob
+
+tar_files=(
+    "$source_path"/*.tar
+)
+
+shopt -u nullglob
+
+if [ "${#tar_files[@]}" -eq 0 ]; then
+    echo "ERROR: No MERIT-Hydro .tar files found in:"
+    echo "$source_path"
+    exit 1
+fi
+
+echo "MERIT-Hydro archives found: ${#tar_files[@]}"
+echo
+
+
+# ============================================================
+# UNPACK DATA
+# ============================================================
+
+unpacked_count=0
+
+for file in "${tar_files[@]}"; do
+
+    echo "Unpacking:"
+    echo "  $file"
+
+    tar -xf "$file" \
+        -C "$dest_path"
+
+    unpacked_count=$((unpacked_count + 1))
+
 done
 
 
-#---------------------------------
-# Code provenance
-#---------------------------------
-# Generates a basic log file in the domain folder and copies the control file and itself there.
-# Make a log directory if it doesn't exist
+# ============================================================
+# VERIFY OUTPUT
+# ============================================================
+
+tif_count=$(
+    find "$dest_path" \
+        -type f \
+        -name "*.tif" \
+        | wc -l
+)
+
+if [ "$tif_count" -eq 0 ]; then
+    echo
+    echo "ERROR: No GeoTIFF files were found after extraction:"
+    echo "$dest_path"
+    exit 1
+fi
+
+
+# ============================================================
+# WORKFLOW LOG
+# ============================================================
+
 log_path="${dest_path}/_workflow_log"
-mkdir -p $log_path
 
-# Log filename
-today=`date '+%F'`
-log_file="${today}_compile_log.txt"
+mkdir -p "$log_path"
 
-# Make the log
-this_file='unpack_merit_hydro_dem.sh'
-echo "Log generated by ${this_file} on `date '+%F %H:%M:%S'`"  > $log_path/$log_file # 1st line, store in new file
-echo 'Unpacked raw MERIT Hydro data.' >> $log_path/$log_file # 2nd line, append to existing file
+timestamp=$(date '+%Y%m%d_%H%M%S')
 
-# Copy this file to log directory
-cp $this_file $log_path
+log_file="${log_path}/${timestamp}_unpack_merit_hydro_dem.txt"
+
+this_file=$(basename "$0")
+
+cp "$0" \
+    "$log_path/$this_file"
+
+cp "$CONTROL" \
+    "$log_path/$(basename "$CONTROL")"
+
+
+{
+    echo "Log generated by ${this_file} on $(date '+%F %H:%M:%S')"
+    echo "Domain: ${domain_name}"
+    echo "Control file: ${CONTROL}"
+    echo "Source directory: ${source_path}"
+    echo "Destination directory: ${dest_path}"
+    echo "Archives unpacked: ${unpacked_count}"
+    echo "GeoTIFF files found: ${tif_count}"
+} > "$log_file"
+
+
+# ============================================================
+# SUMMARY
+# ============================================================
+
+echo
+echo "======================================================================"
+echo "MERIT-HYDRO UNPACK COMPLETED"
+echo "======================================================================"
+echo "Domain            : $domain_name"
+echo "Archives unpacked : $unpacked_count"
+echo "GeoTIFF files     : $tif_count"
+echo "Output directory  : $dest_path"
+echo "Workflow log      : $log_file"

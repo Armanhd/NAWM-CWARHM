@@ -1,124 +1,307 @@
-# GDAL doc: https://gdal.org/programs/gdalwarp.html
-# MODIS doc: https://lpdaac.usgs.gov/documents/101/MCD12_User_Guide_V6.pdf
+#!/bin/bash
+set -euo pipefail
 
-# Extract the modeling domain out of the global-cover VRTs.
+# Crop reprojected MODIS MCD12Q1 VRT files to the active modeling domain.
+#
+# Usage:
+#
+# bash specify_subdomain.sh \
+# /path/to/control_DOMAIN.txt
+#
+# The domain extent is read from:
+#
+# forcing_raw_space | LAT_MAX/LON_MIN/LAT_MIN/LON_MAX
+#
+# Input:
+#   parameters/landclass/3_vrt_epsg_4326/
+#
+# Output:
+#   parameters/landclass/4_domain_vrt_epsg_4326/
 
-# load the module
-# module load gdal/3.0.4
+# ============================================================
+# INPUT CONTROL FILE
+# ============================================================
 
-#---------------------------------
-# Specify settings
-#---------------------------------
+if [ "$#" -ne 1 ]; then
+    echo "Usage:"
+    echo "bash specify_subdomain.sh /path/to/control_DOMAIN.txt"
+    exit 1
+fi
 
-# --- Location of source VRT data
-dest_line=$(grep -m 1 "^parameter_land_vrt2_path" ../../../0_control_files/control_active.txt) # full settings line
-source_path=$(echo ${dest_line##*|})   # removing the leading text up to '|'
-source_path=$(echo ${source_path%%#*}) # removing the trailing comments, if any are present
+CONTROL_FILE=$(realpath "$1")
 
-# Specify the default path if needed
+if [ ! -f "$CONTROL_FILE" ]; then
+    echo "ERROR: Control file not found:"
+    echo "$CONTROL_FILE"
+    exit 1
+fi
+
+# ============================================================
+# CONTROL-FILE READER
+# ============================================================
+
+read_control() {
+
+    local setting="$1"
+    local value
+
+    value=$(
+        grep -m 1 "^${setting}[[:space:]]*|" "$CONTROL_FILE" \
+        | cut -d'|' -f2- \
+        | cut -d'#' -f1 \
+        | xargs
+    )
+
+    if [ -z "$value" ]; then
+        echo "ERROR: Setting not found or empty: $setting" >&2
+        exit 1
+    fi
+
+    echo "$value"
+}
+
+# ============================================================
+# DOMAIN SETTINGS
+# ============================================================
+
+root_path=$(read_control "root_path")
+domain_name=$(read_control "domain_name")
+
+domain_path="${root_path}/domain_${domain_name}"
+
+# ============================================================
+# SOURCE VRT DIRECTORY
+# ============================================================
+
+source_path=$(read_control "parameter_land_vrt2_path")
+
 if [ "$source_path" = "default" ]; then
-  
- # Get the root path and append the appropriate install directories
- root_line=$(grep -m 1 "^root_path" ../../../0_control_files/control_active.txt)
- root_path=$(echo ${root_line##*|}) 
- root_path=$(echo ${root_path%%#*})
-
- # domain name
- domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
- domain_name=$(echo ${domain_line##*|}) 
- domain_name=$(echo ${domain_name%%#*})
- 
- # source path
- source_path="${root_path}/domain_${domain_name}/parameters/landclass/3_vrt_epsg_4326"
-
+    source_path="${domain_path}/parameters/landclass/3_vrt_epsg_4326"
 fi
 
-# --- Location where cropped VRT needs to go
-dest_line=$(grep -m 1 "^parameter_land_vrt3_path" ../../../0_control_files/control_active.txt) # full settings line
-dest_path=$(echo ${dest_line##*|})   # removing the leading text up to '|'
-dest_path=$(echo ${dest_path%%#*}) # removing the trailing comments, if any are present
+if [ ! -d "$source_path" ]; then
+    echo "ERROR: Reprojected MODIS VRT directory not found:"
+    echo "$source_path"
+    exit 1
+fi
 
-# Specify the default path if needed
+# ============================================================
+# DESTINATION DIRECTORY
+# ============================================================
+
+dest_path=$(read_control "parameter_land_vrt3_path")
+
 if [ "$dest_path" = "default" ]; then
-  
- # Get the root path and append the appropriate install directories
- root_line=$(grep -m 1 "^root_path" ../../../0_control_files/control_active.txt)
- root_path=$(echo ${root_line##*|}) 
- root_path=$(echo ${root_path%%#*})
-
- # domain name
- domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
- domain_name=$(echo ${domain_line##*|}) 
- domain_name=$(echo ${domain_name%%#*})
- 
- # destination path
- dest_path="${root_path}/domain_${domain_name}/parameters/landclass/4_domain_vrt_epsg_4326"
+    dest_path="${domain_path}/parameters/landclass/4_domain_vrt_epsg_4326"
 fi
 
-# Make destination directory 
-mkdir -p $dest_path
+mkdir -p "$dest_path"
 
-# --- Find dimensions of modeling domain
-domain_line=$(grep -m 1 "^forcing_raw_space" ../../../0_control_files/control_active.txt) # full settings line
-domain_full=$(echo ${domain_line##*|})   # removing the leading text up to '|'
-domain_full=$(echo ${domain_full%%#*}) # removing the trailing comments, if any are present
+# ============================================================
+# DOMAIN EXTENT
+# ============================================================
 
-# Separate the values into an array
-while IFS='/' read -ra domain_array; do
- LAT_MAX=${domain_array[0]}
- LON_MIN=${domain_array[1]}
- LAT_MIN=${domain_array[2]}
- LON_MAX=${domain_array[3]}
-done <<< "$domain_full"
+domain_full=$(read_control "forcing_raw_space")
 
+IFS='/' read -r LAT_MAX LON_MIN LAT_MIN LON_MAX <<< "$domain_full"
 
-#---------------------------------
-# Crop the domain
-#---------------------------------
+if (
+    [ -z "${LAT_MAX:-}" ] ||
+    [ -z "${LON_MIN:-}" ] ||
+    [ -z "${LAT_MIN:-}" ] ||
+    [ -z "${LON_MAX:-}" ]
+); then
+    echo "ERROR: Could not parse forcing_raw_space:"
+    echo "$domain_full"
+    exit 1
+fi
 
-# Loop over all files
-for FILE_SRC in "$source_path"/MCD*.vrt
-do
+# Basic numeric check.
 
-    FILENAME=$(basename -- "$FILE_SRC")
+number_regex='^-?[0-9]+([.][0-9]+)?$'
 
-    FILE_DES="$dest_path/domain_$FILENAME"
+for value in "$LAT_MAX" "$LON_MIN" "$LAT_MIN" "$LON_MAX"; do
 
-    echo "Cropping: $FILENAME"
-    echo "Bounds: $LON_MIN $LAT_MAX $LON_MAX $LAT_MIN"
-
-    gdal_translate \
-        -of VRT \
-        -projwin "$LON_MIN" "$LAT_MAX" "$LON_MAX" "$LAT_MIN" \
-        "$FILE_SRC" \
-        "$FILE_DES"
+    if [[ ! "$value" =~ $number_regex ]]; then
+        echo "ERROR: Non-numeric coordinate in forcing_raw_space:"
+        echo "$domain_full"
+        exit 1
+    fi
 
 done
 
+# Basic bounds sanity checks.
 
-#---------------------------------
-# Code provenance
-#---------------------------------
-# Generates a basic log file in the domain folder and copies the control file and itself there.
-# Make a log directory if it doesn't exist
+if ! awk \
+    -v latmax="$LAT_MAX" \
+    -v latmin="$LAT_MIN" \
+    'BEGIN { exit !(latmax > latmin) }'
+then
+    echo "ERROR: LAT_MAX must be greater than LAT_MIN."
+    echo "forcing_raw_space: $domain_full"
+    exit 1
+fi
+
+if ! awk \
+    -v lonmax="$LON_MAX" \
+    -v lonmin="$LON_MIN" \
+    'BEGIN { exit !(lonmax > lonmin) }'
+then
+    echo "ERROR: LON_MAX must be greater than LON_MIN."
+    echo "forcing_raw_space: $domain_full"
+    exit 1
+fi
+
+# ============================================================
+# GDAL CHECK
+# ============================================================
+
+if ! command -v gdal_translate >/dev/null 2>&1; then
+    echo "ERROR: gdal_translate not found."
+    echo
+    echo "For the MODIS workflow on ARC, use the GDAL installed"
+    echo "inside the nwam Conda environment."
+    exit 1
+fi
+
+# ============================================================
+# FIND INPUT VRT FILES
+# ============================================================
+
+mapfile -t vrt_files < <(
+    find "$source_path" \
+        -maxdepth 1 \
+        -type f \
+        -name "MCD12Q1_*.vrt" \
+        | sort
+)
+
+if [ "${#vrt_files[@]}" -eq 0 ]; then
+    echo "ERROR: No reprojected MODIS VRT files found in:"
+    echo "$source_path"
+    exit 1
+fi
+
+# ============================================================
+# REPORT
+# ============================================================
+
+echo
+echo "======================================================================"
+echo "CROP MODIS MCD12Q1 VRT TO DOMAIN"
+echo "======================================================================"
+echo
+echo "Domain       : $domain_name"
+echo "Control file : $CONTROL_FILE"
+echo "Source       : $source_path"
+echo "Destination  : $dest_path"
+echo "VRT files    : ${#vrt_files[@]}"
+echo
+echo "Domain extent:"
+echo "  latitude : $LAT_MIN to $LAT_MAX"
+echo "  longitude: $LON_MIN to $LON_MAX"
+echo
+echo "GDAL         : $(command -v gdal_translate)"
+echo "GDAL version : $(gdal_translate --version | head -1)"
+echo
+
+# ============================================================
+# CROP EACH VRT
+# ============================================================
+
+created_count=0
+
+for FILE_SRC in "${vrt_files[@]}"; do
+
+    FILENAME=$(basename "$FILE_SRC")
+
+    FILE_DES="${dest_path}/domain_${FILENAME}"
+
+    echo "----------------------------------------------------------------------"
+    echo "Input : $FILE_SRC"
+    echo "Output: $FILE_DES"
+    echo "----------------------------------------------------------------------"
+
+    # Remove an old output so a failed rerun cannot leave a stale VRT.
+
+    rm -f "$FILE_DES"
+
+    gdal_translate \
+        -of VRT \
+        -projwin \
+        "$LON_MIN" \
+        "$LAT_MAX" \
+        "$LON_MAX" \
+        "$LAT_MIN" \
+        "$FILE_SRC" \
+        "$FILE_DES"
+
+    if [ ! -s "$FILE_DES" ]; then
+        echo "ERROR: Cropped VRT was not created:"
+        echo "$FILE_DES"
+        exit 1
+    fi
+
+    # Confirm the result is readable.
+
+    if ! gdalinfo "$FILE_DES" >/dev/null 2>&1; then
+        echo "ERROR: Cropped VRT cannot be opened by GDAL:"
+        echo "$FILE_DES"
+        exit 1
+    fi
+
+    created_count=$((created_count + 1))
+
+    echo
+    echo "Created successfully:"
+    echo "$FILE_DES"
+    echo
+done
+
+# ============================================================
+# WORKFLOW LOG
+# ============================================================
+
 log_path="${dest_path}/_workflow_log"
-mkdir -p $log_path
 
-# Log filename
-today=`date '+%F'`
-log_file="${today}_specify_subdomain_log.txt"
+mkdir -p "$log_path"
 
-# Make the log
-this_file='specify_subdomain.sh'
-echo "Log generated by ${this_file} on `date '+%F %H:%M:%S'`"  > $log_path/$log_file # 1st line, store in new file
-echo 'Cropped VRTs to modeling domain.' >> $log_path/$log_file # 2nd line, append to existing file
+timestamp=$(date '+%Y%m%d_%H%M%S')
 
-# Copy this file to log directory
-cp $this_file $log_path
+log_file="${log_path}/${timestamp}_crop_modis_domain_vrt.txt"
 
+this_file=$(basename "$0")
 
+{
+    echo "Log generated by ${this_file} on $(date '+%F %H:%M:%S')"
+    echo "Domain: ${domain_name}"
+    echo "Control file: ${CONTROL_FILE}"
+    echo "Source VRT directory: ${source_path}"
+    echo "Output VRT directory: ${dest_path}"
+    echo "Domain latitude: ${LAT_MIN} to ${LAT_MAX}"
+    echo "Domain longitude: ${LON_MIN} to ${LON_MAX}"
+    echo "VRT files processed: ${#vrt_files[@]}"
+    echo "VRT files created: ${created_count}"
+    echo "GDAL: $(command -v gdal_translate)"
+    echo "GDAL version: $(gdal_translate --version | head -1)"
+} > "$log_file"
 
+cp \
+    "$0" \
+    "$log_path/$this_file"
 
+cp \
+    "$CONTROL_FILE" \
+    "$log_path/$(basename "$CONTROL_FILE")"
 
+# ============================================================
+# FINISH
+# ============================================================
 
-
+echo "======================================================================"
+echo "MODIS DOMAIN VRT CROPPING COMPLETED"
+echo "======================================================================"
+echo "Domain       : $domain_name"
+echo "Files created: $created_count"
+echo "Output folder: $dest_path"
+echo "Workflow log : $log_file"

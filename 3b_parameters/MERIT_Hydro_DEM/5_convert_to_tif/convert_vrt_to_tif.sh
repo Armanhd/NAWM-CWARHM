@@ -1,128 +1,261 @@
 #!/bin/bash
 
-# Convert the MERIT .vrt to .tif
+# Convert the cropped MERIT-Hydro domain VRT to GeoTIFF.
+#
+# Usage:
+#
+# bash convert_vrt_to_tif.sh /path/to/control_DOMAIN.txt
+#
+# Example:
+#
+# bash convert_vrt_to_tif.sh \
+# /work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin/0_control_files/control_MERIT_717.txt
 
-# modules
-#module load lib/gdal/3.9.2
+set -euo pipefail
 
-# ---------------------------------
-# Specify settings
-# ---------------------------------
 
-# --- Location of source data
+# ============================================================
+# CONTROL FILE
+# ============================================================
 
-dest_line=$(grep -m 1 "^parameter_dem_unpack_path" ../../../0_control_files/control_active.txt)
-data_path=$(echo ${dest_line##*|})
-data_path=$(echo ${data_path%%#*})
-data_path=$(echo "$data_path" | xargs)
-
-if [ "$data_path" = "default" ]; then
-
-    root_line=$(grep -m 1 "^root_path" ../../../0_control_files/control_active.txt)
-    root_path=$(echo ${root_line##*|})
-    root_path=$(echo ${root_path%%#*})
-    root_path=$(echo "$root_path" | xargs)
-
-    domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
-    domain_name=$(echo ${domain_line##*|})
-    domain_name=$(echo ${domain_name%%#*})
-    domain_name=$(echo "$domain_name" | xargs)
-
-    data_path="${root_path}/domain_${domain_name}/parameters/dem/2_MERIT_hydro_unpacked_data"
+if [ "$#" -ne 1 ]; then
+    echo "Usage:"
+    echo "bash convert_vrt_to_tif.sh /path/to/control_DOMAIN.txt"
+    exit 1
 fi
 
-# --- Location of source VRT
+CONTROL=$(realpath "$1")
 
-dest_line=$(grep -m 1 "^parameter_dem_vrt2_path" ../../../0_control_files/control_active.txt)
-source_path=$(echo ${dest_line##*|})
-source_path=$(echo ${source_path%%#*})
-source_path=$(echo "$source_path" | xargs)
+if [ ! -f "$CONTROL" ]; then
+    echo "ERROR: Control file not found:"
+    echo "$CONTROL"
+    exit 1
+fi
+
+
+# ============================================================
+# CONTROL-FILE FUNCTION
+# ============================================================
+
+read_control() {
+
+    local setting="$1"
+    local value
+
+    value=$(
+        grep -m 1 "^${setting}[[:space:]]*|" "$CONTROL" \
+        | cut -d'|' -f2- \
+        | cut -d'#' -f1 \
+        | xargs
+    )
+
+    if [ -z "$value" ]; then
+        echo "ERROR: Setting not found or empty: $setting" >&2
+        exit 1
+    fi
+
+    printf '%s\n' "$value"
+}
+
+
+# ============================================================
+# DOMAIN SETTINGS
+# ============================================================
+
+root_path=$(read_control "root_path")
+domain_name=$(read_control "domain_name")
+
+
+# ============================================================
+# SOURCE VRT PATH
+# ============================================================
+
+source_path=$(read_control "parameter_dem_vrt2_path")
 
 if [ "$source_path" = "default" ]; then
 
-    root_line=$(grep -m 1 "^root_path" ../../../0_control_files/control_active.txt)
-    root_path=$(echo ${root_line##*|})
-    root_path=$(echo ${root_path%%#*})
-    root_path=$(echo "$root_path" | xargs)
-
-    domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
-    domain_name=$(echo ${domain_line##*|})
-    domain_name=$(echo ${domain_name%%#*})
-    domain_name=$(echo "$domain_name" | xargs)
-
     source_path="${root_path}/domain_${domain_name}/parameters/dem/4_domain_vrt"
+
 fi
 
-# --- Location where converted data needs to go
 
-dest_line=$(grep -m 1 "^parameter_dem_tif_path" ../../../0_control_files/control_active.txt)
-dest_path=$(echo ${dest_line##*|})
-dest_path=$(echo ${dest_path%%#*})
-dest_path=$(echo "$dest_path" | xargs)
+# ============================================================
+# DESTINATION PATH
+# ============================================================
+
+dest_path=$(read_control "parameter_dem_tif_path")
 
 if [ "$dest_path" = "default" ]; then
 
-    root_line=$(grep -m 1 "^root_path" ../../../0_control_files/control_active.txt)
-    root_path=$(echo ${root_line##*|})
-    root_path=$(echo ${root_path%%#*})
-    root_path=$(echo "$root_path" | xargs)
-
-    domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
-    domain_name=$(echo ${domain_line##*|})
-    domain_name=$(echo ${domain_name%%#*})
-    domain_name=$(echo "$domain_name" | xargs)
-
     dest_path="${root_path}/domain_${domain_name}/parameters/dem/5_elevation"
+
 fi
 
 mkdir -p "$dest_path"
 
-# --- Filenames
 
-vrt_file=$(ls "$source_path"/*.vrt)
+# ============================================================
+# OUTPUT FILENAME
+# ============================================================
 
-name_line=$(grep -m 1 "^parameter_dem_tif_name" ../../../0_control_files/control_active.txt)
-dest_name=$(echo ${name_line##*|})
-dest_name=$(echo ${dest_name%%#*})
-dest_name=$(echo "$dest_name" | xargs)
+dest_name=$(read_control "parameter_dem_tif_name")
+
+if [ -z "$dest_name" ]; then
+    echo "ERROR: parameter_dem_tif_name is empty."
+    exit 1
+fi
 
 tif_file="${dest_path}/${dest_name}"
 
-# --------------------------------------------------------------------------
-# Check if BIGTIFF is needed
-# --------------------------------------------------------------------------
 
-fold_size=($(du -s "$data_path"))
+# ============================================================
+# FIND SOURCE VRT
+# ============================================================
 
-if ((fold_size > 4000000)); then
-    bigtiff_flag='YES'
-else
-    bigtiff_flag='NO'
+if [ ! -d "$source_path" ]; then
+    echo "ERROR: Source VRT directory not found:"
+    echo "$source_path"
+    exit 1
 fi
 
-# ---------------------------------
-# Create .tif file
-# ---------------------------------
+mapfile -t vrt_files < <(
+    find "$source_path" \
+        -maxdepth 1 \
+        -type f \
+        -name "*.vrt" \
+        | sort
+)
+
+if [ "${#vrt_files[@]}" -eq 0 ]; then
+
+    echo "ERROR: No VRT file found in:"
+    echo "$source_path"
+    exit 1
+
+fi
+
+if [ "${#vrt_files[@]}" -gt 1 ]; then
+
+    echo "ERROR: Expected exactly one domain VRT but found:"
+    printf '  %s\n' "${vrt_files[@]}"
+    exit 1
+
+fi
+
+vrt_file="${vrt_files[0]}"
+
+
+# ============================================================
+# REPORT
+# ============================================================
+
+echo
+echo "======================================================================"
+echo "CONVERT MERIT-HYDRO DOMAIN VRT TO GEOTIFF"
+echo "======================================================================"
+echo
+echo "Domain       : $domain_name"
+echo "Control file : $CONTROL"
+echo "Source VRT   : $vrt_file"
+echo "Destination  : $tif_file"
+echo
+
+
+# ============================================================
+# REMOVE STALE OUTPUT
+# ============================================================
+
+if [ -e "$tif_file" ]; then
+
+    echo "Removing existing output:"
+    echo "  $tif_file"
+
+    rm -f "$tif_file"
+
+fi
+
+
+# ============================================================
+# CREATE GEOTIFF
+# ============================================================
 
 gdal_translate \
-    -co COMPRESS="DEFLATE" \
-    -co BIGTIFF="$bigtiff_flag" \
+    -of GTiff \
+    -co COMPRESS=DEFLATE \
+    -co TILED=YES \
+    -co BIGTIFF=IF_SAFER \
     "$vrt_file" \
     "$tif_file"
 
-# ---------------------------------
-# Code provenance
-# ---------------------------------
+
+# ============================================================
+# VERIFY OUTPUT EXISTS
+# ============================================================
+
+if [ ! -s "$tif_file" ]; then
+
+    echo "ERROR: Output GeoTIFF was not created:"
+    echo "$tif_file"
+    exit 1
+
+fi
+
+
+# ============================================================
+# BASIC GDAL VALIDATION
+# ============================================================
+
+if ! gdalinfo "$tif_file" >/dev/null 2>&1; then
+
+    echo "ERROR: gdalinfo could not read:"
+    echo "$tif_file"
+    exit 1
+
+fi
+
+
+# ============================================================
+# WORKFLOW LOG
+# ============================================================
 
 log_path="${dest_path}/_workflow_log"
+
 mkdir -p "$log_path"
 
-today=$(date '+%F')
-log_file="${today}_compile_log.txt"
+timestamp=$(date '+%Y%m%d_%H%M%S')
 
-this_file='convert_vrt_to_tif.sh'
+log_file="${log_path}/${timestamp}_convert_merit_vrt_to_tif.txt"
 
-echo "Log generated by ${this_file} on $(date '+%F %H:%M:%S')" > "$log_path/$log_file"
-echo 'Converted MERIT .vrt into .tif.' >> "$log_path/$log_file"
+this_file=$(basename "$0")
 
-cp "$this_file" "$log_path"
+
+cp "$0" \
+    "$log_path/$this_file"
+
+cp "$CONTROL" \
+    "$log_path/$(basename "$CONTROL")"
+
+
+{
+    echo "Log generated by ${this_file} on $(date '+%F %H:%M:%S')"
+    echo "Domain: ${domain_name}"
+    echo "Control file: ${CONTROL}"
+    echo "Source VRT: ${vrt_file}"
+    echo "Output GeoTIFF: ${tif_file}"
+    echo "Compression: DEFLATE"
+    echo "Tiled: YES"
+    echo "BIGTIFF: IF_SAFER"
+} > "$log_file"
+
+
+# ============================================================
+# SUMMARY
+# ============================================================
+
+echo
+echo "======================================================================"
+echo "MERIT-HYDRO GEOTIFF CREATION COMPLETED"
+echo "======================================================================"
+echo "Domain       : $domain_name"
+echo "Output TIFF  : $tif_file"
+echo "Workflow log : $log_file"

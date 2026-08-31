@@ -1,52 +1,123 @@
-# Copy mizuRoute base settings into the active domain settings folder.
+#!/usr/bin/env python3
+# coding: utf-8
+
+# Copy mizuRoute base settings into the selected domain settings folder.
 #
-# The script:
-#   - locates CWARHM relative to this script
-#   - reads control_active.txt
-#   - resolves settings_mizu_path
+# Purpose
+# -------
+# This script:
+#   - locates CWARHM_multibasin from its own file location
+#   - reads a domain-specific control file supplied on the command line
+#   - resolves the mizuRoute settings directory
 #   - copies files from ../0_base_settings
-#   - validates the source and destination paths
-#   - records script provenance in _workflow_log
+#   - validates that the configured mizuRoute parameter file exists
+#   - records workflow provenance
 #
 # Expected output includes:
-#   settings/mizuRoute/param.nml.default
+#
+#   <root_path>/domain_<domain_name>/settings/mizuRoute/
+#       param.nml.default
+#
+# IMPORTANT
+# ---------
+# This script does NOT read, create, or modify control_active.txt.
+#
+# Usage
+# -----
+# python 1_copy_base_settings.py \
+# /path/to/control_DOMAIN.txt
 
+import sys
 from pathlib import Path
-from shutil import copyfile
+from shutil import copy2
 from datetime import datetime
 
 
 # ============================================================
-# PROJECT / CONTROL FILE
+# CONTROL FILE
 # ============================================================
 
-SCRIPT_DIR = Path(__file__).resolve().parent
+if len(sys.argv) != 2:
 
-# Script location:
-# CWARHM/5_model_input/mizuRoute/1a_copy_base_settings
-#
-# Therefore CWARHM root is three levels above this directory.
-CWARHM_ROOT = SCRIPT_DIR.parents[2]
+    raise SystemExit(
+        "Usage:\n"
+        "python 1_copy_base_settings.py "
+        "/path/to/control_DOMAIN.txt"
+    )
 
-CONTROL_FILE = (
-    CWARHM_ROOT
-    / "0_control_files"
-    / "control_active.txt"
-)
+
+CONTROL_FILE = Path(
+    sys.argv[1]
+).resolve()
+
 
 if not CONTROL_FILE.exists():
+
     raise FileNotFoundError(
-        f"Control file not found:\n{CONTROL_FILE}"
+        "Control file not found:\n"
+        f"{CONTROL_FILE}"
     )
+
+
+if not CONTROL_FILE.is_file():
+
+    raise RuntimeError(
+        "Control-file path is not a file:\n"
+        f"{CONTROL_FILE}"
+    )
+
+
+# ============================================================
+# PROJECT PATHS
+# ============================================================
+
+SCRIPT_DIR = Path(
+    __file__
+).resolve().parent
+
+
+# Script location:
+#
+# CWARHM_multibasin/
+#   5_model_input/
+#     mizuRoute/
+#       1a_copy_base_settings/
+#         1_copy_base_settings.py
+#
+# Therefore:
+#
+# SCRIPT_DIR.parent
+#     = 5_model_input/mizuRoute
+#
+# SCRIPT_DIR.parents[2]
+#     = CWARHM_multibasin
+
+MIZU_WORKFLOW_DIR = (
+    SCRIPT_DIR.parent
+)
+
+
+CWARHM_ROOT = (
+    SCRIPT_DIR.parents[2]
+)
+
+
+BASE_SETTINGS_PATH = (
+    MIZU_WORKFLOW_DIR
+    / "0_base_settings"
+)
 
 
 # ============================================================
 # CONTROL FUNCTIONS
 # ============================================================
 
-def read_from_control(file, setting):
+def read_from_control(
+    file,
+    setting
+):
     """
-    Read one exact setting from a CWARHM control file.
+    Read one setting using exact control-key matching.
     """
 
     with open(file) as contents:
@@ -62,25 +133,41 @@ def read_from_control(file, setting):
             ):
                 continue
 
-            left, right = stripped.split("|", 1)
+            left, right = stripped.split(
+                "|",
+                1
+            )
 
             if left.strip() != setting:
                 continue
 
-            return (
+            value = (
                 right
                 .split("#", 1)[0]
                 .strip()
             )
 
+            if value == "":
+
+                raise ValueError(
+                    f"Setting '{setting}' is empty in:\n"
+                    f"{file}"
+                )
+
+            return value
+
     raise ValueError(
-        f"Setting not found in control file: {setting}"
+        f"Setting '{setting}' not found in:\n"
+        f"{file}"
     )
 
 
-def make_default_path(suffix):
+def make_default_path(
+    suffix
+):
     """
-    Construct a default domain path from root_path/domain_name.
+    Construct:
+        <root_path>/domain_<domain_name>/<suffix>
     """
 
     root_path = Path(
@@ -90,10 +177,12 @@ def make_default_path(suffix):
         )
     )
 
+
     domain_name = read_from_control(
         CONTROL_FILE,
         "domain_name"
     )
+
 
     return (
         root_path
@@ -103,7 +192,7 @@ def make_default_path(suffix):
 
 
 # ============================================================
-# DOMAIN INFORMATION
+# DOMAIN
 # ============================================================
 
 domain_name = read_from_control(
@@ -113,23 +202,22 @@ domain_name = read_from_control(
 
 
 # ============================================================
-# SOURCE BASE SETTINGS
+# VALIDATE SOURCE BASE SETTINGS
 # ============================================================
 
-base_settings_path = (
-    SCRIPT_DIR.parent
-    / "0_base_settings"
-)
+if not BASE_SETTINGS_PATH.exists():
 
-if not base_settings_path.exists():
     raise FileNotFoundError(
-        f"mizuRoute base-settings directory not found:\n"
-        f"{base_settings_path}"
+        "mizuRoute base-settings directory not found:\n"
+        f"{BASE_SETTINGS_PATH}"
     )
 
-if not base_settings_path.is_dir():
+
+if not BASE_SETTINGS_PATH.is_dir():
+
     raise NotADirectoryError(
-        f"Expected a directory:\n{base_settings_path}"
+        "Expected mizuRoute base-settings directory:\n"
+        f"{BASE_SETTINGS_PATH}"
     )
 
 
@@ -141,6 +229,7 @@ settings_path = read_from_control(
     CONTROL_FILE,
     "settings_mizu_path"
 )
+
 
 if settings_path == "default":
 
@@ -154,6 +243,7 @@ else:
         settings_path
     )
 
+
 settings_path.mkdir(
     parents=True,
     exist_ok=True
@@ -161,30 +251,80 @@ settings_path.mkdir(
 
 
 # ============================================================
-# FIND FILES TO COPY
+# CONFIGURED PARAMETER FILE
+# ============================================================
+
+parameter_name = read_from_control(
+    CONTROL_FILE,
+    "settings_mizu_parameters"
+)
+
+
+if not parameter_name:
+
+    raise ValueError(
+        "settings_mizu_parameters is empty."
+    )
+
+
+parameter_file = (
+    settings_path
+    / parameter_name
+)
+
+
+# ============================================================
+# FIND BASE FILES
 # ============================================================
 
 base_files = sorted(
     file
-    for file in base_settings_path.iterdir()
+    for file in BASE_SETTINGS_PATH.iterdir()
     if file.is_file()
 )
 
-if len(base_files) == 0:
+
+if not base_files:
+
     raise RuntimeError(
-        f"No base-setting files found in:\n"
-        f"{base_settings_path}"
+        "No mizuRoute base-setting files found in:\n"
+        f"{BASE_SETTINGS_PATH}"
     )
 
 
+# ============================================================
+# REPORT
+# ============================================================
+
 print()
-print("============================================================")
+print("=" * 70)
 print("COPY MIZUROUTE BASE SETTINGS")
-print("============================================================")
-print(f"Domain      : {domain_name}")
-print(f"Source      : {base_settings_path}")
-print(f"Destination : {settings_path}")
-print(f"Files found : {len(base_files)}")
+print("=" * 70)
+
+print(
+    f"Domain       : {domain_name}"
+)
+
+print(
+    f"Control file : {CONTROL_FILE}"
+)
+
+print(
+    f"Source       : {BASE_SETTINGS_PATH}"
+)
+
+print(
+    f"Destination  : {settings_path}"
+)
+
+print(
+    f"Files found  : {len(base_files)}"
+)
+
+print(
+    f"Parameter    : {parameter_name}"
+)
+
 print()
 
 
@@ -194,6 +334,7 @@ print()
 
 copied_files = []
 
+
 for source_file in base_files:
 
     destination_file = (
@@ -201,14 +342,17 @@ for source_file in base_files:
         / source_file.name
     )
 
-    copyfile(
+
+    copy2(
         source_file,
         destination_file
     )
 
+
     copied_files.append(
         destination_file
     )
+
 
     print(
         f"Copied: {source_file.name}"
@@ -216,49 +360,69 @@ for source_file in base_files:
 
 
 # ============================================================
-# VERIFY EXPECTED PARAMETER FILE
+# VERIFY COPIED FILES
 # ============================================================
 
-parameter_name = read_from_control(
-    CONTROL_FILE,
-    "settings_mizu_parameters"
-)
+missing_outputs = [
+    file
+    for file in copied_files
+    if not file.exists()
+]
 
-parameter_file = (
-    settings_path
-    / parameter_name
-)
+
+if missing_outputs:
+
+    missing_text = "\n".join(
+        str(file)
+        for file in missing_outputs
+    )
+
+    raise RuntimeError(
+        "One or more mizuRoute base-setting files "
+        "were not copied successfully:\n"
+        f"{missing_text}"
+    )
+
+
+# ============================================================
+# VERIFY CONFIGURED PARAMETER FILE
+# ============================================================
 
 if not parameter_file.exists():
 
     print()
     print(
-        "WARNING: The parameter file specified in "
-        "control_active.txt was not found after copying:"
-    )
-
-    print(
-        parameter_file
-    )
-
-    print()
-    print(
-        "Files that were copied:"
+        "Files copied:"
     )
 
     for file in copied_files:
+
         print(
             f"  {file.name}"
         )
 
+
     raise FileNotFoundError(
-        "Configured mizuRoute parameter file "
-        "was not produced."
+        "The mizuRoute parameter file configured by "
+        "'settings_mizu_parameters' was not found "
+        "after copying.\n\n"
+        f"Configured filename:\n"
+        f"  {parameter_name}\n\n"
+        f"Expected location:\n"
+        f"  {parameter_file}"
+    )
+
+
+if parameter_file.stat().st_size == 0:
+
+    raise RuntimeError(
+        "Configured mizuRoute parameter file is empty:\n"
+        f"{parameter_file}"
     )
 
 
 # ============================================================
-# LOGGING / PROVENANCE
+# WORKFLOW LOG
 # ============================================================
 
 log_folder = (
@@ -266,66 +430,131 @@ log_folder = (
     / "_workflow_log"
 )
 
+
 log_folder.mkdir(
     parents=True,
     exist_ok=True
 )
 
 
-this_file = Path(__file__).name
+this_file = Path(
+    __file__
+).name
 
-copyfile(
+
+# Save the exact script used.
+
+copy2(
     Path(__file__).resolve(),
-    log_folder / this_file
+    log_folder
+    / this_file
+)
+
+
+# Save the exact domain control file used.
+
+copy2(
+    CONTROL_FILE,
+    log_folder
+    / CONTROL_FILE.name
 )
 
 
 now = datetime.now()
 
+
 log_file = (
     log_folder
-    / f"{now:%Y%m%d}_copy_mizuroute_base_settings.txt"
+    / (
+        f"{now:%Y%m%d_%H%M%S}_"
+        "copy_mizuroute_base_settings.txt"
+    )
 )
 
 
 with open(
     log_file,
     "w"
-) as f:
+) as file:
 
-    f.write(
+    file.write(
         f"Log generated by {this_file} "
         f"on {now:%Y/%m/%d %H:%M:%S}\n"
     )
 
-    f.write(
+    file.write(
         f"Domain: {domain_name}\n"
     )
 
-    f.write(
-        f"Source directory: {base_settings_path}\n"
+    file.write(
+        f"Control file: {CONTROL_FILE}\n"
     )
 
-    f.write(
-        f"Destination directory: {settings_path}\n"
+    file.write(
+        f"Source directory: "
+        f"{BASE_SETTINGS_PATH}\n"
     )
 
-    f.write(
-        f"Files copied: {len(copied_files)}\n"
+    file.write(
+        f"Destination directory: "
+        f"{settings_path}\n"
     )
 
-    for file in copied_files:
-        f.write(
-            f"  {file.name}\n"
+    file.write(
+        f"Files copied: "
+        f"{len(copied_files)}\n"
+    )
+
+    file.write(
+        f"Configured parameter file: "
+        f"{parameter_name}\n"
+    )
+
+    file.write(
+        "Shared control_active.txt used: no\n"
+    )
+
+    file.write(
+        "\nCopied files:\n"
+    )
+
+    for copied_file in copied_files:
+
+        file.write(
+            f"  {copied_file.name}\n"
         )
 
 
 # ============================================================
-# SUMMARY
+# FINISH
 # ============================================================
 
 print()
-print("mizuRoute base settings copied successfully.")
-print(f"Files copied : {len(copied_files)}")
-print(f"Parameter file: {parameter_file}")
-print(f"Output folder : {settings_path}")
+print("=" * 70)
+print("MIZUROUTE BASE SETTINGS COPY COMPLETED")
+print("=" * 70)
+
+print(
+    f"Domain         : {domain_name}"
+)
+
+print(
+    f"Files copied   : {len(copied_files)}"
+)
+
+print(
+    f"Parameter file : {parameter_file}"
+)
+
+print(
+    f"Output folder  : {settings_path}"
+)
+
+print(
+    f"Workflow log   : {log_file}"
+)
+
+print()
+print(
+    "No control_active.txt was created or modified."
+)

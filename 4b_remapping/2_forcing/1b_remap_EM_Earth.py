@@ -1,62 +1,99 @@
 #!/usr/bin/env python3
 # coding: utf-8
 
-# Create EM-Earth -> SUMMA HRU EASYMORE remapping information.
-#
-# Purpose
-# -------
-# Use one prepared EM-Earth monthly forcing file to generate
-# reusable spatial remapping information for all EM-Earth months.
-#
-# NWAM uses EM-Earth for:
-#
-#   pptrate
-#   airtemp
-#
-# IMPORTANT
-# ---------
-# The EASYMORE target shapefile is the Stage-00 prepared CWARHM
-# catchment:
-#
-#   <root_path>/domain_<domain_name>/shapefiles/catchment/
-#
-# It is NOT the original read-only MERIT source shapefile.
-#
-# The prepared copy must contain the SUMMA HRU fields and a
-# persistent EPSG:4326 CRS.
-#
-# Usage
-# -----
-# python 1b_remap_EM_Earth.py
+"""
+Create reusable EM-Earth -> SUMMA HRU EASYMORE remapping information.
 
+Purpose
+-------
+Use one prepared EM-Earth monthly forcing file to:
+
+1. intersect the EM-Earth forcing grid with the prepared CWARHM HRUs;
+2. generate reusable EASYMORE remapping information;
+3. create one test basin-averaged EM-Earth forcing file.
+
+NWAM uses EM-Earth for:
+
+    pptrate
+    airtemp
+
+Multibasin behavior
+-------------------
+A domain-specific control file must be supplied explicitly.
+
+The script does NOT read or modify control_active.txt.
+
+Target shapefile
+----------------
+The EASYMORE target shapefile is always the prepared CWARHM
+catchment:
+
+    <root_path>/domain_<domain_name>/shapefiles/catchment/
+
+It is NOT the original read-only MERIT source shapefile.
+
+Source forcing
+--------------
+Prepared EM-Earth forcing is expected at:
+
+    forcing/1_raw_data/EM_Earth_prepared/
+
+with filenames:
+
+    EM_Earth_SUMMA_YYYYMM.nc
+
+Source forcing grid
+-------------------
+The EM-Earth grid shapefile is defined by:
+
+    forcing_shape_path
+    forcing_emearth_shape_name
+
+Output
+------
+Reusable remapping products are stored in:
+
+    shapefiles/catchment_intersection/with_forcing/EM_Earth/
+
+The one-month test remapped forcing is stored in:
+
+    forcing/3_basin_averaged_data/EM_Earth/
+
+Usage
+-----
+python 1b_remap_EM_Earth.py \
+/path/to/control_DOMAIN.txt
+"""
+
+import sys
 import os
 import glob
 from pathlib import Path
-from shutil import rmtree, copyfile
+from shutil import rmtree, copy2
 from datetime import datetime
 
 import geopandas as gpd
+import numpy as np
+import xarray as xr
 import easymore
 
 
 # ============================================================
-# PROJECT PATHS
+# INPUT CONTROL FILE
 # ============================================================
 
-SCRIPT_DIR = Path(__file__).resolve().parent
+if len(sys.argv) != 2:
 
-# Script:
-# CWARHM/4b_remapping/2_forcing/
-#
-# parents[1] = CWARHM
-CWARHM_ROOT = SCRIPT_DIR.parents[1]
+    raise SystemExit(
+        "Usage:\n"
+        "python 1b_remap_EM_Earth.py "
+        "/path/to/control_DOMAIN.txt"
+    )
 
 
-CONTROL_FILE = (
-    CWARHM_ROOT
-    / "0_control_files"
-    / "control_active.txt"
-)
+CONTROL_FILE = Path(
+    sys.argv[1]
+).resolve()
 
 
 if not CONTROL_FILE.exists():
@@ -68,7 +105,7 @@ if not CONTROL_FILE.exists():
 
 
 # ============================================================
-# CONTROL FILE HANDLING
+# CONTROL FUNCTIONS
 # ============================================================
 
 def read_from_control(file, setting):
@@ -97,11 +134,20 @@ def read_from_control(file, setting):
             if left.strip() != setting:
                 continue
 
-            return (
+            value = (
                 right
                 .split("#", 1)[0]
                 .strip()
             )
+
+            if value == "":
+
+                raise ValueError(
+                    f"Setting '{setting}' is empty in:\n"
+                    f"{file}"
+                )
+
+            return value
 
     raise ValueError(
         f"Setting '{setting}' not found in:\n"
@@ -111,7 +157,7 @@ def read_from_control(file, setting):
 
 def make_default_path(suffix):
     """
-    Construct a path within the active CWARHM domain.
+    Construct a standard domain path.
     """
 
     root_path = Path(
@@ -143,23 +189,28 @@ domain = read_from_control(
 )
 
 
-print()
-print("=" * 70)
-print("EM-EARTH EASYMORE REMAPPING")
-print("=" * 70)
-
-print(
-    f"Domain: {domain}"
-)
-
-
 # ============================================================
-# PREPARED CATCHMENT / HRU SHAPEFILE
+# TARGET HRU SHAPEFILE
 # ============================================================
 
 catchment_name = read_from_control(
     CONTROL_FILE,
     "catchment_shp_name"
+)
+
+target_id_field = read_from_control(
+    CONTROL_FILE,
+    "catchment_shp_hruid"
+)
+
+target_lat_field = read_from_control(
+    CONTROL_FILE,
+    "catchment_shp_lat"
+)
+
+target_lon_field = read_from_control(
+    CONTROL_FILE,
+    "catchment_shp_lon"
 )
 
 
@@ -177,15 +228,15 @@ catchment_file = (
 if not catchment_file.exists():
 
     raise FileNotFoundError(
-        "Prepared CWARHM catchment shapefile was not found:\n"
+        "Prepared CWARHM catchment shapefile "
+        "was not found:\n"
         f"{catchment_file}\n\n"
-        "Run Stage 00 "
-        "00_prepare_domain_shapefiles first."
+        "Run Stage 00 before forcing remapping."
     )
 
 
 # ============================================================
-# VALIDATE TARGET CATCHMENT
+# VALIDATE TARGET HRUS
 # ============================================================
 
 target_gdf = gpd.read_file(
@@ -204,10 +255,7 @@ if len(target_gdf) == 0:
 if target_gdf.crs is None:
 
     raise RuntimeError(
-        "Prepared CWARHM catchment has no CRS:\n"
-        f"{catchment_file}\n\n"
-        "Stage 00 should create this file with EPSG:4326 "
-        "and a persistent .prj file."
+        "Prepared target catchment has no CRS."
     )
 
 
@@ -219,27 +267,10 @@ target_epsg = (
 if target_epsg != 4326:
 
     raise RuntimeError(
-        "Prepared CWARHM catchment has an unexpected CRS.\n\n"
-        f"Expected : EPSG:4326\n"
-        f"Found    : {target_gdf.crs}\n"
-        f"File     : {catchment_file}"
+        "Prepared target catchment has unexpected CRS.\n\n"
+        "Expected: EPSG:4326\n"
+        f"Found   : {target_gdf.crs}"
     )
-
-
-target_id_field = read_from_control(
-    CONTROL_FILE,
-    "catchment_shp_hruid"
-)
-
-target_lat_field = read_from_control(
-    CONTROL_FILE,
-    "catchment_shp_lat"
-)
-
-target_lon_field = read_from_control(
-    CONTROL_FILE,
-    "catchment_shp_lon"
-)
 
 
 required_target_fields = [
@@ -259,8 +290,7 @@ missing_target_fields = [
 if missing_target_fields:
 
     raise RuntimeError(
-        "Prepared catchment is missing required EASYMORE "
-        "field(s): "
+        "Prepared target catchment is missing field(s): "
         + ", ".join(
             missing_target_fields
         )
@@ -281,7 +311,44 @@ if target_gdf[
 ].duplicated().any():
 
     raise RuntimeError(
-        f"{target_id_field} contains duplicate HRU IDs."
+        f"{target_id_field} contains duplicate IDs."
+    )
+
+
+target_hru_ids = (
+    target_gdf[
+        target_id_field
+    ]
+    .astype(np.int64)
+    .to_numpy()
+)
+
+
+if not np.all(
+    np.isfinite(
+        target_gdf[
+            target_lat_field
+        ].astype(float)
+    )
+):
+
+    raise RuntimeError(
+        f"{target_lat_field} contains "
+        "non-finite values."
+    )
+
+
+if not np.all(
+    np.isfinite(
+        target_gdf[
+            target_lon_field
+        ].astype(float)
+    )
+):
+
+    raise RuntimeError(
+        f"{target_lon_field} contains "
+        "non-finite values."
     )
 
 
@@ -323,13 +390,15 @@ forcing_shape_file = (
 if not forcing_shape_file.exists():
 
     raise FileNotFoundError(
-        "EM-Earth forcing-grid shapefile not found:\n"
-        f"{forcing_shape_file}"
+        "EM-Earth forcing-grid shapefile "
+        "not found:\n"
+        f"{forcing_shape_file}\n\n"
+        "Run 2_create_forcing_grids.py first."
     )
 
 
 # ============================================================
-# VALIDATE EM-EARTH GRID SHAPEFILE
+# VALIDATE SOURCE GRID
 # ============================================================
 
 source_grid_gdf = gpd.read_file(
@@ -341,29 +410,23 @@ source_grid_gdf = gpd.read_file(
 if len(source_grid_gdf) == 0:
 
     raise RuntimeError(
-        "EM-Earth forcing-grid shapefile contains no features."
+        "EM-Earth grid shapefile contains no features."
     )
 
 
 if source_grid_gdf.crs is None:
 
     raise RuntimeError(
-        "EM-Earth forcing-grid shapefile has no CRS:\n"
-        f"{forcing_shape_file}"
+        "EM-Earth forcing-grid shapefile has no CRS."
     )
 
 
-source_grid_epsg = (
-    source_grid_gdf.crs.to_epsg()
-)
-
-
-if source_grid_epsg != 4326:
+if source_grid_gdf.crs.to_epsg() != 4326:
 
     raise RuntimeError(
-        "EM-Earth forcing-grid shapefile has an unexpected CRS.\n\n"
-        f"Expected : EPSG:4326\n"
-        f"Found    : {source_grid_gdf.crs}"
+        "EM-Earth forcing grid has unexpected CRS.\n\n"
+        "Expected: EPSG:4326\n"
+        f"Found   : {source_grid_gdf.crs}"
     )
 
 
@@ -378,12 +441,15 @@ source_lon_field = read_from_control(
 )
 
 
+required_source_fields = [
+    source_lat_field,
+    source_lon_field,
+]
+
+
 missing_source_fields = [
     field
-    for field in [
-        source_lat_field,
-        source_lon_field,
-    ]
+    for field in required_source_fields
     if field not in source_grid_gdf.columns
 ]
 
@@ -391,7 +457,7 @@ missing_source_fields = [
 if missing_source_fields:
 
     raise RuntimeError(
-        "EM-Earth forcing grid is missing required field(s): "
+        "EM-Earth forcing grid is missing field(s): "
         + ", ".join(
             missing_source_fields
         )
@@ -399,12 +465,20 @@ if missing_source_fields:
 
 
 # ============================================================
-# PREPARED EM-EARTH FORCING
+# PREPARED EM-EARTH FORCING FILES
 # ============================================================
 
 forcing_path = make_default_path(
     "forcing/1_raw_data/EM_Earth_prepared"
 )
+
+
+if not forcing_path.exists():
+
+    raise FileNotFoundError(
+        "Prepared EM-Earth directory not found:\n"
+        f"{forcing_path}"
+    )
 
 
 forcing_files = sorted(
@@ -417,21 +491,119 @@ forcing_files = sorted(
 if not forcing_files:
 
     raise FileNotFoundError(
-        "No prepared EM-Earth forcing files were found in:\n"
-        f"{forcing_path}"
+        "No prepared EM-Earth files found in:\n"
+        f"{forcing_path}\n\n"
+        "Run 1_prepare_emearth_forcing.py first."
     )
 
 
+# Use earliest prepared month as spatial template.
 forcing_file = forcing_files[0]
 
 
 # ============================================================
-# EM-EARTH INTERSECTION / REMAPPING OUTPUT
+# VALIDATE TEMPLATE NETCDF
+# ============================================================
+
+required_variables = [
+    "pptrate",
+    "airtemp",
+]
+
+
+with xr.open_dataset(
+    forcing_file
+) as ds:
+
+    missing_variables = [
+        variable
+        for variable in required_variables
+        if variable not in ds.variables
+    ]
+
+
+    if missing_variables:
+
+        raise RuntimeError(
+            "Template EM-Earth forcing is missing "
+            "required variable(s): "
+            + ", ".join(
+                missing_variables
+            )
+        )
+
+
+    required_coordinates = [
+        "time",
+        "latitude",
+        "longitude",
+    ]
+
+
+    missing_coordinates = [
+        coordinate
+        for coordinate in required_coordinates
+        if coordinate not in ds.variables
+        and coordinate not in ds.coords
+    ]
+
+
+    if missing_coordinates:
+
+        raise RuntimeError(
+            "Template EM-Earth forcing is missing "
+            "coordinate(s): "
+            + ", ".join(
+                missing_coordinates
+            )
+        )
+
+
+    source_time_steps = (
+        ds.sizes.get(
+            "time",
+            0
+        )
+    )
+
+
+    source_lat_count = (
+        ds.sizes.get(
+            "latitude",
+            0
+        )
+    )
+
+
+    source_lon_count = (
+        ds.sizes.get(
+            "longitude",
+            0
+        )
+    )
+
+
+    if (
+        source_time_steps == 0
+        or source_lat_count == 0
+        or source_lon_count == 0
+    ):
+
+        raise RuntimeError(
+            "Template EM-Earth forcing contains "
+            "an empty required dimension."
+        )
+
+
+# ============================================================
+# INTERSECTION / REMAPPING OUTPUT
 # ============================================================
 
 intersect_path = make_default_path(
-    "shapefiles/catchment_intersection/"
-    "with_forcing/EM_Earth"
+    "shapefiles/"
+    "catchment_intersection/"
+    "with_forcing/"
+    "EM_Earth"
 )
 
 
@@ -446,7 +618,9 @@ intersect_path.mkdir(
 # ============================================================
 
 forcing_easymore_path = make_default_path(
-    "forcing/3_temp_easymore/EM_Earth"
+    "forcing/"
+    "3_temp_easymore/"
+    "EM_Earth"
 )
 
 
@@ -464,11 +638,13 @@ forcing_easymore_path.mkdir(
 
 
 # ============================================================
-# EM-EARTH BASIN-AVERAGED OUTPUT DIRECTORY
+# BASIN-AVERAGED OUTPUT DIRECTORY
 # ============================================================
 
 forcing_basin_path = make_default_path(
-    "forcing/3_basin_averaged_data/EM_Earth"
+    "forcing/"
+    "3_basin_averaged_data/"
+    "EM_Earth"
 )
 
 
@@ -483,38 +659,51 @@ forcing_basin_path.mkdir(
 # ============================================================
 
 print()
-print("Inputs")
-print("-" * 70)
+print("=" * 70)
+print("CREATE EM-EARTH -> HRU EASYMORE REMAPPING")
+print("=" * 70)
 
+print()
+print(f"Domain       : {domain}")
+print(f"Control file : {CONTROL_FILE}")
+
+print()
+print(f"Target HRUs  : {catchment_file}")
+print(f"HRU count    : {len(target_gdf)}")
+print(f"First HRU ID : {target_hru_ids[0]}")
+print(f"Last HRU ID  : {target_hru_ids[-1]}")
+print(f"Target CRS   : {target_gdf.crs}")
+
+print()
+print(f"Source grid  : {forcing_shape_file}")
+print(f"Grid cells   : {len(source_grid_gdf)}")
+print(f"Source CRS   : {source_grid_gdf.crs}")
+
+print()
+print(f"Template NC  : {forcing_file}")
+print(f"Time steps   : {source_time_steps}")
+print(f"Latitude     : {source_lat_count}")
+print(f"Longitude    : {source_lon_count}")
+
+print()
 print(
-    f"Source forcing : {forcing_file}"
+    "Variables     : "
+    + ", ".join(
+        required_variables
+    )
 )
 
-print(
-    f"Source grid    : {forcing_shape_file}"
-)
-
-print(
-    f"Source CRS     : {source_grid_gdf.crs}"
-)
-
-print(
-    f"Target HRUs    : {catchment_file}"
-)
-
-print(
-    f"Target CRS     : {target_gdf.crs}"
-)
-
-print(
-    f"Target HRUs    : {len(target_gdf):,}"
-)
+print()
+print(f"Temp folder  : {forcing_easymore_path}")
+print(f"Output folder: {forcing_basin_path}")
+print(f"Remap folder : {intersect_path}")
 
 
 # ============================================================
 # EASYMORE SETUP
 # ============================================================
 
+# Keep the constructor currently used by the NWAM environment.
 esmr = easymore.Easymore()
 
 
@@ -522,19 +711,19 @@ esmr.author_name = (
     "NWAM-SUMMA workflow"
 )
 
+
 esmr.license = (
     "EM-Earth meteorological forcing"
 )
 
 
 esmr.case_name = (
-    domain
-    + "_EM_Earth"
+    f"{domain}_EM_Earth"
 )
 
 
 # ------------------------------------------------------------
-# Source forcing-grid shapefile
+# SOURCE GRID SHAPEFILE
 # ------------------------------------------------------------
 
 esmr.source_shp = str(
@@ -551,7 +740,7 @@ esmr.source_shp_lon = (
 
 
 # ------------------------------------------------------------
-# Target HRU shapefile
+# TARGET HRU SHAPEFILE
 # ------------------------------------------------------------
 
 esmr.target_shp = str(
@@ -572,7 +761,7 @@ esmr.target_shp_lon = (
 
 
 # ------------------------------------------------------------
-# EM-Earth NetCDF
+# SOURCE NETCDF
 # ------------------------------------------------------------
 
 esmr.source_nc = str(
@@ -586,13 +775,21 @@ esmr.var_names = [
 ]
 
 
-esmr.var_lat = "latitude"
-esmr.var_lon = "longitude"
-esmr.var_time = "time"
+esmr.var_lat = (
+    "latitude"
+)
+
+esmr.var_lon = (
+    "longitude"
+)
+
+esmr.var_time = (
+    "time"
+)
 
 
 # ------------------------------------------------------------
-# EASYMORE directories
+# EASYMORE DIRECTORIES
 # ------------------------------------------------------------
 
 esmr.temp_dir = (
@@ -612,11 +809,16 @@ esmr.output_dir = (
 
 
 # ------------------------------------------------------------
-# SUMMA-compatible remapped structure
+# SUMMA-COMPATIBLE OUTPUT
 # ------------------------------------------------------------
 
-esmr.remapped_dim_id = "hru"
-esmr.remapped_var_id = "hruId"
+esmr.remapped_dim_id = (
+    "hru"
+)
+
+esmr.remapped_var_id = (
+    "hruId"
+)
 
 
 esmr.format_list = [
@@ -630,7 +832,10 @@ esmr.fill_value_list = [
 
 
 esmr.save_csv = False
+
 esmr.remap_csv = ""
+
+# Preserve the HRU ordering of the prepared target shapefile.
 esmr.sort_ID = False
 
 
@@ -639,160 +844,271 @@ esmr.sort_ID = False
 # ============================================================
 
 print()
-print("Running EASYMORE...")
+print("-" * 70)
+print("RUN EASYMORE")
+print("-" * 70)
+print()
 
 
 esmr.nc_remapper()
 
 
 # ============================================================
-# SAVE REMAPPING PRODUCTS
+# FIND EASYMORE REMAPPING PRODUCTS
+# ============================================================
+
+temp_dir = Path(
+    esmr.temp_dir
+)
+
+
+if not temp_dir.exists():
+
+    raise RuntimeError(
+        "EASYMORE temporary directory disappeared "
+        "before remapping products could be collected:\n"
+        f"{temp_dir}"
+    )
+
+
+# Different EASYMORE versions may produce slightly different
+# remapping filenames. Preserve all matching products.
+
+remap_nc_files = sorted(
+    temp_dir.glob(
+        f"{esmr.case_name}*remap*.nc"
+    )
+)
+
+
+remap_csv_files = sorted(
+    temp_dir.glob(
+        f"{esmr.case_name}*remap*.csv"
+    )
+)
+
+
+intersect_files = sorted(
+    temp_dir.glob(
+        f"{esmr.case_name}_intersected_shapefile.*"
+    )
+)
+
+
+# ============================================================
+# REQUIRE A REUSABLE REMAPPING FILE
+# ============================================================
+
+if (
+    not remap_nc_files
+    and not remap_csv_files
+):
+
+    print()
+    print("Temporary EASYMORE files:")
+
+    for path in sorted(
+        temp_dir.iterdir()
+    ):
+
+        print(
+            f"  {path.name}"
+        )
+
+
+    raise RuntimeError(
+        "EASYMORE completed but no reusable "
+        "remapping NetCDF or CSV was found."
+    )
+
+
+# ============================================================
+# COPY REMAPPING PRODUCTS
 # ============================================================
 
 print()
-print("Saving remapping products...")
+print("-" * 70)
+print("SAVE REMAPPING PRODUCTS")
+print("-" * 70)
 
 
-# ------------------------------------------------------------
-# Remapping NetCDF
-# ------------------------------------------------------------
-
-remap_nc = (
-    Path(
-        esmr.temp_dir
-    )
-    / (
-        f"{esmr.case_name}"
-        "_remapping.nc"
-    )
-)
+saved_remap_files = []
 
 
-if remap_nc.exists():
+for source in (
+    remap_nc_files
+    + remap_csv_files
+):
 
     destination = (
         intersect_path
-        / remap_nc.name
+        / source.name
     )
 
-    copyfile(
-        remap_nc,
+
+    copy2(
+        source,
         destination
     )
 
-    print(
-        f"Saved remapping NetCDF:\n"
-        f"{destination}"
-    )
 
-else:
-
-    print(
-        "WARNING: EASYMORE remapping NetCDF "
-        "was not found."
+    saved_remap_files.append(
+        destination
     )
 
 
-# ------------------------------------------------------------
-# Hashed remapping CSV
-# ------------------------------------------------------------
-
-remap_csv_files = list(
-    Path(
-        esmr.temp_dir
-    ).glob(
-        f"{esmr.case_name}"
-        "_remapping_file_*.csv"
-    )
-)
-
-
-if remap_csv_files:
-
-    for remap_csv in remap_csv_files:
-
-        destination = (
-            intersect_path
-            / remap_csv.name
-        )
-
-        copyfile(
-            remap_csv,
-            destination
-        )
-
-        print(
-            f"Saved remapping CSV:\n"
-            f"{destination}"
-        )
-
-else:
-
     print(
-        "WARNING: No EASYMORE remapping CSV "
-        "was found."
-    )
-
-
-# ------------------------------------------------------------
-# Intersected shapefile
-# ------------------------------------------------------------
-
-intersect_files = glob.glob(
-    esmr.temp_dir
-    + esmr.case_name
-    + "_intersected_shapefile.*"
-)
-
-
-if intersect_files:
-
-    for file in intersect_files:
-
-        destination = (
-            intersect_path
-            / os.path.basename(
-                file
-            )
-        )
-
-        copyfile(
-            file,
-            destination
-        )
-
-    print(
-        "Saved intersected shapefile components."
-    )
-
-else:
-
-    print(
-        "WARNING: No intersected shapefile "
-        "components were found."
+        f"Saved: {destination}"
     )
 
 
 # ============================================================
-# REMOVE TEMPORARY EASYMORE DIRECTORY
+# COPY INTERSECTION SHAPEFILE
 # ============================================================
 
-try:
+saved_intersection_files = []
 
-    rmtree(
-        esmr.temp_dir
+
+for source in intersect_files:
+
+    destination = (
+        intersect_path
+        / source.name
     )
 
-except OSError as error:
+
+    copy2(
+        source,
+        destination
+    )
+
+
+    saved_intersection_files.append(
+        destination
+    )
+
+
+if saved_intersection_files:
 
     print()
     print(
-        "WARNING: Could not remove temporary "
-        "EASYMORE directory:"
+        "Saved intersected shapefile components:"
     )
 
-    print(
-        error
+    for path in saved_intersection_files:
+
+        print(
+            f"  {path.name}"
+        )
+
+
+# ============================================================
+# FIND ONE-MONTH REMAPPED OUTPUT
+# ============================================================
+
+remapped_nc_files = sorted(
+    forcing_basin_path.glob(
+        "*.nc"
+    )
+)
+
+
+if not remapped_nc_files:
+
+    raise RuntimeError(
+        "EASYMORE did not create a basin-averaged "
+        "EM-Earth NetCDF file in:\n"
+        f"{forcing_basin_path}"
+    )
+
+
+# Use newest file in case the directory already contained output.
+remapped_nc_files = sorted(
+    remapped_nc_files,
+    key=lambda path: path.stat().st_mtime
+)
+
+
+test_output = (
+    remapped_nc_files[-1]
+)
+
+
+# ============================================================
+# VERIFY REMAPPED NETCDF
+# ============================================================
+
+with xr.open_dataset(
+    test_output
+) as ds:
+
+    missing_variables = [
+        variable
+        for variable in required_variables
+        if variable not in ds.variables
+    ]
+
+
+    if missing_variables:
+
+        raise RuntimeError(
+            "Remapped EM-Earth output is missing "
+            "required variable(s): "
+            + ", ".join(
+                missing_variables
+            )
+        )
+
+
+    if "hruId" not in ds.variables:
+
+        raise RuntimeError(
+            "Remapped EM-Earth output does not "
+            "contain hruId."
+        )
+
+    saved_hru_ids = (
+        np.asarray(
+            ds["hruId"].values
+        )
+        .astype(np.int64)
+        .reshape(-1)
+    )
+
+
+    if saved_hru_ids.size != len(
+        target_hru_ids
+    ):
+
+        raise RuntimeError(
+            "Remapped EM-Earth HRU count does "
+            "not match prepared catchment.\n"
+            f"Expected: {len(target_hru_ids)}\n"
+            f"Found   : {saved_hru_ids.size}"
+        )
+
+
+    if not np.array_equal(
+        saved_hru_ids,
+        target_hru_ids
+    ):
+
+        raise RuntimeError(
+            "Remapped EM-Earth hruId ordering "
+            "does not match the prepared catchment."
+        )
+
+
+    output_time_steps = (
+        ds.sizes.get(
+            "time",
+            0
+        )
+    )
+
+
+    output_hru_count = (
+        saved_hru_ids.size
     )
 
 
@@ -817,17 +1133,16 @@ this_file = Path(
 ).name
 
 
-try:
+copy2(
+    Path(__file__).resolve(),
+    log_folder / this_file
+)
 
-    copyfile(
-        Path(__file__).resolve(),
-        log_folder
-        / this_file
-    )
 
-except OSError:
-
-    pass
+copy2(
+    CONTROL_FILE,
+    log_folder / CONTROL_FILE.name
+)
 
 
 now = datetime.now()
@@ -836,8 +1151,8 @@ now = datetime.now()
 log_file = (
     log_folder
     / (
-        f"{now:%Y%m%d}_"
-        "EM_Earth_remapping_log.txt"
+        f"{now:%Y%m%d_%H%M%S}_"
+        "EM_Earth_remapping.txt"
     )
 )
 
@@ -848,8 +1163,8 @@ with open(
 ) as file:
 
     file.write(
-        f"Log generated by {this_file} on "
-        f"{now:%Y/%m/%d %H:%M:%S}\n"
+        f"Log generated by {this_file} "
+        f"on {now:%Y/%m/%d %H:%M:%S}\n"
     )
 
     file.write(
@@ -857,26 +1172,86 @@ with open(
     )
 
     file.write(
-        f"Target catchment: "
-        f"{catchment_file}\n"
+        f"Control file: {CONTROL_FILE}\n"
     )
 
     file.write(
-        "Target CRS: EPSG:4326\n"
+        f"Target catchment: {catchment_file}\n"
     )
 
     file.write(
-        f"Template forcing file: "
-        f"{forcing_file.name}\n"
+        f"Target HRUs: {len(target_hru_ids)}\n"
     )
 
     file.write(
-        "Created EM-Earth-to-HRU "
-        "EASYMORE remapping.\n"
+        f"Source grid: {forcing_shape_file}\n"
     )
 
     file.write(
-        "Variables: pptrate, airtemp.\n"
+        f"Source grid cells: "
+        f"{len(source_grid_gdf)}\n"
+    )
+
+    file.write(
+        f"Template forcing: {forcing_file}\n"
+    )
+
+    file.write(
+        "Variables: pptrate, airtemp\n"
+    )
+
+    file.write(
+        f"Test output: {test_output}\n"
+    )
+
+    file.write(
+        f"Output HRUs: {output_hru_count}\n"
+    )
+
+    file.write(
+        f"Output time steps: {output_time_steps}\n"
+    )
+
+    file.write(
+        "HRU ordering preserved: yes\n"
+    )
+
+    file.write(
+        f"Reusable remapping products: "
+        f"{len(saved_remap_files)}\n"
+    )
+
+    for path in saved_remap_files:
+
+        file.write(
+            f"Remapping file: {path}\n"
+        )
+
+    file.write(
+        "Shared control_active.txt used: no\n"
+    )
+
+
+# ============================================================
+# REMOVE TEMPORARY DIRECTORY
+# ============================================================
+
+try:
+
+    rmtree(
+        forcing_easymore_path
+    )
+
+except OSError as error:
+
+    print()
+    print(
+        "WARNING: Could not remove temporary "
+        "EASYMORE directory:"
+    )
+
+    print(
+        error
     )
 
 
@@ -886,41 +1261,58 @@ with open(
 
 print()
 print("=" * 70)
-print("EM-EARTH ONE-MONTH REMAPPING COMPLETED")
+print("EM-EARTH EASYMORE REMAPPING COMPLETED")
 print("=" * 70)
 
+print(
+    f"Domain             : {domain}"
+)
+
+print(
+    f"Target HRUs        : {len(target_hru_ids)}"
+)
+
+print(
+    f"Source grid cells  : {len(source_grid_gdf)}"
+)
+
+print(
+    f"Variables          : pptrate, airtemp"
+)
+
+print(
+    f"Template month     : {forcing_file.name}"
+)
+
+print(
+    f"Test output        : {test_output}"
+)
+
+print(
+    f"Output HRUs        : {output_hru_count}"
+)
+
+print(
+    f"Output time steps  : {output_time_steps}"
+)
+
+print(
+    f"HRU order          : preserved"
+)
+
+print(
+    f"Remapping products : {len(saved_remap_files)}"
+)
+
+print(
+    f"Remap folder       : {intersect_path}"
+)
+
+print(
+    f"Workflow log       : {log_file}"
+)
+
 print()
 print(
-    "Prepared target HRUs:"
-)
-
-print(
-    catchment_file
-)
-
-print()
-print(
-    "Basin-averaged forcing:"
-)
-
-print(
-    forcing_basin_path
-)
-
-print()
-print(
-    "Reusable remapping products:"
-)
-
-print(
-    intersect_path
-)
-
-print()
-print(
-    "Workflow log:"
-)
-
-print(
-    log_file
+    "No control_active.txt was created or modified."
 )

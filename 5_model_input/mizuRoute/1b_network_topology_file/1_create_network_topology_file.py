@@ -1,98 +1,146 @@
-# Create the mizuRoute river-network topology NetCDF.
+#!/usr/bin/env python3
+# coding: utf-8
+
+# Create mizuRoute topology.nc for a selected NWAM/CWARHM domain.
 #
-# Core assumption
-# ---------------
-# Routing is performed between routing HRUs / GRUs.
-# The routing-basin shapefile provides the routing HRUs and
-# their receiving stream segments, while the river-network
-# shapefile provides stream connectivity.
+# Purpose
+# -------
+# Translate the prepared Stage-00 river-network and routing-basin
+# shapefiles into the topology structure required by mizuRoute.
 #
-# Output topology.nc contains:
-#
-# Dimensions
-# ----------
-#   seg : number of river segments
+# Output dimensions
+# -----------------
+#   seg : number of retained river segments
 #   hru : number of routing HRUs
 #
-# Variables
-# ---------
-#   segId       : unique stream-segment ID
-#   downSegId   : downstream stream-segment ID
-#   slope       : stream-segment slope
-#   length      : stream-segment length [m]
-#   hruId       : routing HRU ID
-#   hruToSegId  : stream segment receiving runoff from each HRU
-#   area        : routing HRU area [m2]
+# Output variables
+# ----------------
+#   segId       : unique river-segment ID
+#   downSegId   : downstream river-segment ID
+#   slope       : river-segment slope
+#   length      : river-segment length [m]
+#   hruId       : routing-HRU ID
+#   hruToSegId  : segment receiving runoff from each HRU
+#   area        : routing-HRU area [m2]
 #
 # Outlet handling
 # ---------------
-# settings_mizu_make_outlet may contain:
+# There are two possible outlet types.
 #
-#   n/a
+# 1. Natural clipped-domain outlets
 #
-# or one/multiple segment IDs:
+#    If the source NextDownID points to a segment that is not
+#    contained in the prepared river-network shapefile, this
+#    segment leaves the retained domain. Its downSegId is
+#    therefore automatically changed to 0.
 #
-#   12345
-#   12345,67890
+# 2. Explicitly forced outlets
 #
-# Requested outlet segments are assigned downSegId = 0
-# before network-connectivity validation.
+#    settings_mizu_make_outlet may contain:
 #
-# Reproducibility / validation improvements
-# -----------------------------------------
-#   - robust control-file location based on script location
-#   - exact control-setting matching
-#   - validates all required files and fields
-#   - checks segment and routing-HRU ID uniqueness
-#   - validates slope, length and area values
-#   - validates requested outlet IDs
-#   - applies outlet correction before connectivity checking
-#   - verifies downstream-segment connectivity
-#   - verifies HRU-to-segment connectivity
-#   - verifies written NetCDF structure
-#   - records provenance in _workflow_log
+#       n/a
+#
+#    or one/multiple segment IDs:
+#
+#       12345
+#       12345,67890
+#
+#    Those segments are explicitly assigned downSegId = 0.
+#
+# IMPORTANT
+# ---------
+# This script uses the Stage-00 prepared domain shapefiles:
+#
+#   domain_<name>/shapefiles/river_network/
+#   domain_<name>/shapefiles/catchment/
+#
+# It does not modify the original MERIT source shapefiles.
+#
+# This script does NOT read, create, or modify control_active.txt.
+#
+# Usage
+# -----
+# python 1_create_network_topology_file.py \
+# /path/to/control_DOMAIN.txt
 
 
+import sys
 from pathlib import Path
-from shutil import copyfile
+from shutil import copy2
 from datetime import datetime
 
 import geopandas as gpd
-import numpy as np
 import netCDF4 as nc4
+import numpy as np
+import pandas as pd
 
 
 # ============================================================
-# PROJECT / CONTROL FILE
+# CONTROL FILE
 # ============================================================
 
-SCRIPT_DIR = Path(__file__).resolve().parent
+if len(sys.argv) != 2:
 
-# Script location:
-# CWARHM/5_model_input/mizuRoute/1b_network_topology_file/
-#
-# parents[2] = CWARHM
-CWARHM_ROOT = SCRIPT_DIR.parents[2]
+    raise SystemExit(
+        "Usage:\n"
+        "python 1_create_network_topology_file.py "
+        "/path/to/control_DOMAIN.txt"
+    )
 
-CONTROL_FILE = (
-    CWARHM_ROOT
-    / "0_control_files"
-    / "control_active.txt"
-)
+
+CONTROL_FILE = Path(
+    sys.argv[1]
+).resolve()
+
 
 if not CONTROL_FILE.exists():
+
     raise FileNotFoundError(
-        f"Control file not found:\n{CONTROL_FILE}"
+        "Control file not found:\n"
+        f"{CONTROL_FILE}"
     )
+
+
+if not CONTROL_FILE.is_file():
+
+    raise RuntimeError(
+        "Control-file path is not a file:\n"
+        f"{CONTROL_FILE}"
+    )
+
+
+# ============================================================
+# PROJECT PATHS
+# ============================================================
+
+SCRIPT_DIR = Path(
+    __file__
+).resolve().parent
+
+
+# Script location:
+#
+# CWARHM_multibasin/
+#   5_model_input/
+#     mizuRoute/
+#       1b_network_topology_file/
+#         1_create_network_topology_file.py
+
+CWARHM_ROOT = (
+    SCRIPT_DIR.parents[2]
+)
 
 
 # ============================================================
 # CONTROL FUNCTIONS
 # ============================================================
 
-def read_from_control(file, setting):
+def read_from_control(
+    file,
+    setting
+):
     """
-    Read one exact setting from the CWARHM control file.
+    Read one control setting using exact key matching.
     """
 
     with open(file) as contents:
@@ -108,25 +156,41 @@ def read_from_control(file, setting):
             ):
                 continue
 
-            left, right = stripped.split("|", 1)
+            left, right = stripped.split(
+                "|",
+                1
+            )
 
             if left.strip() != setting:
                 continue
 
-            return (
+            value = (
                 right
                 .split("#", 1)[0]
                 .strip()
             )
 
+            if value == "":
+
+                raise ValueError(
+                    f"Setting '{setting}' is empty in:\n"
+                    f"{file}"
+                )
+
+            return value
+
     raise ValueError(
-        f"Setting not found in control file: {setting}"
+        f"Setting '{setting}' not found in:\n"
+        f"{file}"
     )
 
 
-def make_default_path(suffix):
+def make_default_path(
+    suffix
+):
     """
-    Construct a default path inside domain_<domain_name>.
+    Construct:
+        <root_path>/domain_<domain_name>/<suffix>
     """
 
     root_path = Path(
@@ -148,6 +212,59 @@ def make_default_path(suffix):
     )
 
 
+def resolve_path(
+    setting,
+    default_suffix
+):
+    """
+    Resolve a control path setting.
+    """
+
+    value = read_from_control(
+        CONTROL_FILE,
+        setting
+    )
+
+    if value == "default":
+
+        return make_default_path(
+            default_suffix
+        )
+
+    return Path(
+        value
+    )
+
+
+def validate_int32(
+    values,
+    name
+):
+    """
+    Validate IDs before writing them as NetCDF int32.
+    """
+
+    values = np.asarray(
+        values,
+        dtype=np.int64
+    )
+
+    limits = np.iinfo(
+        np.int32
+    )
+
+    if (
+        np.any(values < limits.min)
+        or np.any(values > limits.max)
+    ):
+
+        raise RuntimeError(
+            f"{name} contains values outside the "
+            "32-bit integer range required by the "
+            "current mizuRoute topology format."
+        )
+
+
 # ============================================================
 # DOMAIN
 # ============================================================
@@ -159,7 +276,7 @@ domain_name = read_from_control(
 
 
 # ============================================================
-# RIVER NETWORK SHAPEFILE
+# PREPARED RIVER NETWORK
 # ============================================================
 
 river_network_name = read_from_control(
@@ -167,27 +284,14 @@ river_network_name = read_from_control(
     "river_network_shp_name"
 )
 
-# Stage 00 creates the prepared river-network working copy
-# inside the active domain.
-#
-# Stage 5 must use this prepared copy rather than the raw
-# source river-network path from control_active.txt because
-# Stage 00 adds standardized fields required by downstream
-# workflow steps, including:
-#
-#   length_m
-#
-# The raw MERIT source generally contains lengthkm, while the
-# prepared domain copy contains:
-#
-#   length_m = lengthkm * 1000
-#
-# This mirrors the handling of the prepared routing-basin /
-# catchment shapefile below.
+
+# IMPORTANT:
+# Use Stage-00 prepared network rather than original MERIT source.
 
 river_network_path = make_default_path(
     "shapefiles/river_network"
 )
+
 
 river_file = (
     river_network_path
@@ -200,15 +304,18 @@ river_seg_id = read_from_control(
     "river_network_shp_segid"
 )
 
+
 river_down_seg_id = read_from_control(
     CONTROL_FILE,
     "river_network_shp_downsegid"
 )
 
+
 river_slope = read_from_control(
     CONTROL_FILE,
     "river_network_shp_slope"
 )
+
 
 river_length = read_from_control(
     CONTROL_FILE,
@@ -217,7 +324,7 @@ river_length = read_from_control(
 
 
 # ============================================================
-# ROUTING BASIN SHAPEFILE
+# PREPARED ROUTING BASINS
 # ============================================================
 
 river_basin_name = read_from_control(
@@ -225,12 +332,14 @@ river_basin_name = read_from_control(
     "river_basin_shp_name"
 )
 
-# Stage 00 creates the prepared routing-basin/catchment
-# working copy in the domain directory. This prepared file
-# contains area and hru_to_seg required by mizuRoute.
+
+# Stage 00 places the prepared routing-basin representation in
+# the domain catchment directory.
+
 river_basin_path = make_default_path(
     "shapefiles/catchment"
 )
+
 
 basin_file = (
     river_basin_path
@@ -243,10 +352,12 @@ basin_hru_id = read_from_control(
     "river_basin_shp_rm_hruid"
 )
 
+
 basin_hru_area = read_from_control(
     CONTROL_FILE,
     "river_basin_shp_area"
 )
+
 
 basin_hru_to_seg = read_from_control(
     CONTROL_FILE,
@@ -255,30 +366,19 @@ basin_hru_to_seg = read_from_control(
 
 
 # ============================================================
-# OUTPUT TOPOLOGY FILE
+# OUTPUT
 # ============================================================
 
-topology_path = read_from_control(
-    CONTROL_FILE,
-    "settings_mizu_path"
+topology_path = resolve_path(
+    "settings_mizu_path",
+    "settings/mizuRoute"
 )
+
 
 topology_name = read_from_control(
     CONTROL_FILE,
     "settings_mizu_topology"
 )
-
-if topology_path == "default":
-
-    topology_path = make_default_path(
-        "settings/mizuRoute"
-    )
-
-else:
-
-    topology_path = Path(
-        topology_path
-    )
 
 
 topology_path.mkdir(
@@ -298,17 +398,20 @@ topology_file = (
 # ============================================================
 
 if not river_file.exists():
+
     raise FileNotFoundError(
-        f"River-network shapefile not found:\n"
-        f"{river_file}"
+        "Prepared river-network shapefile not found:\n"
+        f"{river_file}\n\n"
+        "Run Stage 00 first."
     )
 
 
 if not basin_file.exists():
+
     raise FileNotFoundError(
         "Prepared routing-basin shapefile not found:\n"
         f"{basin_file}\n\n"
-        "Run Stage 00 before creating topology.nc."
+        "Run Stage 00 first."
     )
 
 
@@ -320,20 +423,25 @@ shp_river = gpd.read_file(
     river_file
 )
 
+
 shp_basin = gpd.read_file(
     basin_file
 )
 
 
 if len(shp_river) == 0:
+
     raise RuntimeError(
-        "River-network shapefile contains no features."
+        "Prepared river-network shapefile "
+        "contains no features."
     )
 
 
 if len(shp_basin) == 0:
+
     raise RuntimeError(
-        "Routing-basin shapefile contains no features."
+        "Prepared routing-basin shapefile "
+        "contains no features."
     )
 
 
@@ -345,13 +453,14 @@ river_required_fields = [
     river_seg_id,
     river_down_seg_id,
     river_slope,
-    river_length
+    river_length,
 ]
+
 
 basin_required_fields = [
     basin_hru_id,
     basin_hru_area,
-    basin_hru_to_seg
+    basin_hru_to_seg,
 ]
 
 
@@ -370,91 +479,175 @@ missing_basin_fields = [
 
 
 if missing_river_fields:
+
     raise RuntimeError(
-        "Missing required river-network field(s): "
-        + ", ".join(missing_river_fields)
+        "Prepared river network is missing "
+        "required field(s):\n"
+        + "\n".join(
+            f"  {field}"
+            for field in missing_river_fields
+        )
     )
 
 
 if missing_basin_fields:
+
     raise RuntimeError(
-        "Missing required routing-basin field(s): "
-        + ", ".join(missing_basin_fields)
+        "Prepared routing basins are missing "
+        "required field(s):\n"
+        + "\n".join(
+            f"  {field}"
+            for field in missing_basin_fields
+        )
     )
 
 
 # ============================================================
-# CONVERT REQUIRED FIELDS TO NUMERIC ARRAYS
+# CONVERT REQUIRED FIELDS
 # ============================================================
 
 try:
 
-    seg_ids = (
-        shp_river[river_seg_id]
-        .astype(np.int64)
-        .to_numpy()
+    seg_ids = pd.to_numeric(
+        shp_river[
+            river_seg_id
+        ],
+        errors="raise"
+    ).to_numpy(
+        dtype=np.int64
     )
+
+
+    original_down_seg_ids = pd.to_numeric(
+        shp_river[
+            river_down_seg_id
+        ],
+        errors="raise"
+    ).to_numpy(
+        dtype=np.int64
+    )
+
 
     down_seg_ids = (
-        shp_river[river_down_seg_id]
-        .astype(np.int64)
-        .to_numpy()
+        original_down_seg_ids.copy()
     )
 
-    slopes = (
-        shp_river[river_slope]
-        .astype(float)
-        .to_numpy()
+
+    slopes = pd.to_numeric(
+        shp_river[
+            river_slope
+        ],
+        errors="raise"
+    ).to_numpy(
+        dtype=np.float64
     )
 
-    lengths = (
-        shp_river[river_length]
-        .astype(float)
-        .to_numpy()
+
+    lengths = pd.to_numeric(
+        shp_river[
+            river_length
+        ],
+        errors="raise"
+    ).to_numpy(
+        dtype=np.float64
     )
 
-    hru_ids = (
-        shp_basin[basin_hru_id]
-        .astype(np.int64)
-        .to_numpy()
+
+    hru_ids = pd.to_numeric(
+        shp_basin[
+            basin_hru_id
+        ],
+        errors="raise"
+    ).to_numpy(
+        dtype=np.int64
     )
 
-    hru_to_seg_ids = (
-        shp_basin[basin_hru_to_seg]
-        .astype(np.int64)
-        .to_numpy()
+
+    hru_to_seg_ids = pd.to_numeric(
+        shp_basin[
+            basin_hru_to_seg
+        ],
+        errors="raise"
+    ).to_numpy(
+        dtype=np.int64
     )
 
-    areas = (
-        shp_basin[basin_hru_area]
-        .astype(float)
-        .to_numpy()
+
+    areas = pd.to_numeric(
+        shp_basin[
+            basin_hru_area
+        ],
+        errors="raise"
+    ).to_numpy(
+        dtype=np.float64
     )
+
 
 except Exception as exc:
 
     raise RuntimeError(
-        "Could not convert required topology fields "
-        "to numeric values."
+        "Could not convert one or more required "
+        "topology fields to numeric values."
     ) from exc
+
+
+# ============================================================
+# BASIC ARRAY VALIDATION
+# ============================================================
+
+num_seg = len(
+    seg_ids
+)
+
+
+num_hru = len(
+    hru_ids
+)
+
+
+if not (
+    len(down_seg_ids)
+    == len(slopes)
+    == len(lengths)
+    == num_seg
+):
+
+    raise RuntimeError(
+        "River-network variable lengths are inconsistent."
+    )
+
+
+if not (
+    len(hru_to_seg_ids)
+    == len(areas)
+    == num_hru
+):
+
+    raise RuntimeError(
+        "Routing-HRU variable lengths are inconsistent."
+    )
 
 
 # ============================================================
 # VALIDATE UNIQUE IDS
 # ============================================================
 
-if len(np.unique(seg_ids)) != len(seg_ids):
+if len(
+    np.unique(
+        seg_ids
+    )
+) != num_seg:
 
     values, counts = np.unique(
         seg_ids,
         return_counts=True
     )
 
-    duplicate_ids = (
-        values[counts > 1]
-        .astype(int)
-        .tolist()
-    )
+    duplicate_ids = values[
+        counts > 1
+    ].astype(
+        int
+    ).tolist()
 
     raise RuntimeError(
         "Duplicate stream-segment IDs detected:\n"
@@ -462,23 +655,55 @@ if len(np.unique(seg_ids)) != len(seg_ids):
     )
 
 
-if len(np.unique(hru_ids)) != len(hru_ids):
+if len(
+    np.unique(
+        hru_ids
+    )
+) != num_hru:
 
     values, counts = np.unique(
         hru_ids,
         return_counts=True
     )
 
-    duplicate_ids = (
-        values[counts > 1]
-        .astype(int)
-        .tolist()
-    )
+    duplicate_ids = values[
+        counts > 1
+    ].astype(
+        int
+    ).tolist()
 
     raise RuntimeError(
-        "Duplicate routing HRU IDs detected:\n"
+        "Duplicate routing-HRU IDs detected:\n"
         f"{duplicate_ids}"
     )
+
+
+# ============================================================
+# INT32 SAFETY
+# ============================================================
+
+validate_int32(
+    seg_ids,
+    "segId"
+)
+
+
+validate_int32(
+    original_down_seg_ids,
+    "source downSegId"
+)
+
+
+validate_int32(
+    hru_ids,
+    "hruId"
+)
+
+
+validate_int32(
+    hru_to_seg_ids,
+    "hruToSegId"
+)
 
 
 # ============================================================
@@ -486,8 +711,11 @@ if len(np.unique(hru_ids)) != len(hru_ids):
 # ============================================================
 
 if not np.all(
-    np.isfinite(slopes)
+    np.isfinite(
+        slopes
+    )
 ):
+
     raise RuntimeError(
         "Non-finite river slope values detected."
     )
@@ -496,77 +724,142 @@ if not np.all(
 if np.any(
     slopes < 0
 ):
+
     raise RuntimeError(
         "Negative river slope values detected."
     )
 
 
 if not np.all(
-    np.isfinite(lengths)
+    np.isfinite(
+        lengths
+    )
 ):
+
     raise RuntimeError(
         "Non-finite river length values detected."
     )
 
 
-# Preserve original CWARHM behavior:
-# replace zero or negative stream lengths with 1 m.
-zero_length = (
+# Retain historical CWARHM safety behavior.
+
+bad_lengths = (
     lengths <= 0
 )
 
 
 if np.any(
-    zero_length
+    bad_lengths
 ):
 
-    count = int(
-        np.sum(zero_length)
+    number_bad = int(
+        np.count_nonzero(
+            bad_lengths
+        )
     )
 
     print()
     print(
-        f"WARNING: {count} segment(s) "
+        "WARNING:"
+    )
+
+    print(
+        f"{number_bad} river segment(s) "
         "have length <= 0."
     )
 
     print(
-        "Setting these segment lengths to 1 m."
+        "These values will be replaced with 1 m."
     )
 
     lengths[
-        zero_length
+        bad_lengths
     ] = 1.0
 
 
 if not np.all(
-    np.isfinite(areas)
+    np.isfinite(
+        areas
+    )
 ):
+
     raise RuntimeError(
-        "Non-finite routing-basin area values detected."
+        "Non-finite routing-HRU area values detected."
     )
 
 
 if np.any(
     areas <= 0
 ):
+
     raise RuntimeError(
-        "Routing-basin area must be > 0."
+        "Routing-HRU areas must be greater than zero."
     )
 
 
 # ============================================================
-# BUILD SEGMENT SET
+# SEGMENT SET
 # ============================================================
 
-segment_set = {
+segment_set = set(
     int(value)
     for value in seg_ids
-}
+)
 
 
 # ============================================================
-# OPTIONAL OUTLET ENFORCEMENT
+# NATURAL CLIPPED-DOMAIN OUTLETS
+# ============================================================
+
+# A MERIT segment may have a valid source NextDownID that is
+# outside this retained Pfaf/domain network.
+#
+# From the perspective of the current mizuRoute model domain,
+# such segments are outlets and must have downSegId = 0.
+
+external_downstream_mask = np.asarray(
+    [
+        (
+            int(value) != 0
+            and int(value) not in segment_set
+        )
+        for value in down_seg_ids
+    ],
+    dtype=bool
+)
+
+
+natural_outlet_segments = (
+    seg_ids[
+        external_downstream_mask
+    ]
+    .astype(
+        np.int64
+    )
+)
+
+
+natural_external_down_ids = (
+    down_seg_ids[
+        external_downstream_mask
+    ]
+    .astype(
+        np.int64
+    )
+)
+
+
+if len(
+    natural_outlet_segments
+) > 0:
+
+    down_seg_ids[
+        external_downstream_mask
+    ] = 0
+
+
+# ============================================================
+# EXPLICIT OUTLET SETTING
 # ============================================================
 
 outlet_setting = read_from_control(
@@ -576,10 +869,10 @@ outlet_setting = read_from_control(
 
 
 if outlet_setting.lower() in {
+    "",
     "n/a",
     "na",
     "none",
-    ""
 }:
 
     requested_outlets = []
@@ -605,52 +898,63 @@ else:
         ) from exc
 
 
-missing_outlets = [
-    value
-    for value in requested_outlets
-    if value not in segment_set
+# Remove accidental duplicates while preserving order.
+
+requested_outlets = list(
+    dict.fromkeys(
+        requested_outlets
+    )
+)
+
+
+missing_requested_outlets = [
+    outlet
+    for outlet in requested_outlets
+    if outlet not in segment_set
 ]
 
 
-if missing_outlets:
+if missing_requested_outlets:
 
     raise RuntimeError(
-        "Requested outlet segment(s) not found "
-        "in river network:\n"
-        f"{missing_outlets}"
+        "Requested forced outlet segment(s) "
+        "were not found in the prepared network:\n"
+        f"{missing_requested_outlets}"
     )
 
 
-# Convert the configured domain outlet(s)
-# to mizuRoute outlet(s).
-#
-# Important:
-# This is done BEFORE downstream connectivity validation,
-# because a clipped-domain outlet can legitimately have a
-# NextDownID outside the retained river network.
+forced_outlet_changes = []
+
 
 for outlet_id in requested_outlets:
 
-    mask = (
-        seg_ids
-        == outlet_id
+    positions = np.where(
+        seg_ids == outlet_id
+    )[0]
+
+
+    position = int(
+        positions[0]
     )
 
-    original_downstream = (
+
+    original_value = int(
         down_seg_ids[
-            mask
-        ].copy()
+            position
+        ]
     )
+
 
     down_seg_ids[
-        mask
+        position
     ] = 0
 
-    print()
-    print(
-        f"Forced outlet {outlet_id}: "
-        f"downSegId "
-        f"{int(original_downstream[0])} -> 0"
+
+    forced_outlet_changes.append(
+        (
+            int(outlet_id),
+            original_value
+        )
     )
 
 
@@ -658,11 +962,8 @@ for outlet_id in requested_outlets:
 # VALIDATE NETWORK CONNECTIVITY
 # ============================================================
 
-# After configured outlet correction, every remaining
-# downstream segment must either:
-#
-#   1. exist in the current network, or
-#   2. equal 0 for an outlet.
+# After natural and explicit outlet handling, every remaining
+# non-zero downstream segment must exist within the domain.
 
 invalid_downstream = sorted(
     {
@@ -679,17 +980,42 @@ invalid_downstream = sorted(
 if invalid_downstream:
 
     raise RuntimeError(
-        "The following downSegId values are not "
-        "present in the river network and are not 0:\n"
-        f"{invalid_downstream}\n\n"
-        "If one of these corresponds to the intended "
-        "domain outlet, set its segment ID in "
-        "settings_mizu_make_outlet."
+        "Invalid downstream segment IDs remain "
+        "after outlet processing:\n"
+        f"{invalid_downstream}"
     )
 
 
-# Every routing HRU must discharge to an existing
-# stream segment.
+# Detect self loops.
+
+self_loop_mask = (
+    down_seg_ids
+    == seg_ids
+)
+
+
+if np.any(
+    self_loop_mask
+):
+
+    self_loop_segments = (
+        seg_ids[
+            self_loop_mask
+        ]
+        .astype(
+            int
+        )
+        .tolist()
+    )
+
+    raise RuntimeError(
+        "Self-looping river segments detected:\n"
+        f"{self_loop_segments}"
+    )
+
+
+# Every routing HRU must map to a segment retained in the
+# topology.
 
 invalid_hru_links = sorted(
     {
@@ -704,103 +1030,147 @@ if invalid_hru_links:
 
     raise RuntimeError(
         "The following hruToSegId values do not "
-        "exist in the river network:\n"
+        "exist in the prepared river network:\n"
         f"{invalid_hru_links}"
     )
 
 
 # ============================================================
-# NETWORK SUMMARY
+# FINAL OUTLETS
 # ============================================================
-
-num_seg = len(
-    seg_ids
-)
-
-num_hru = len(
-    hru_ids
-)
-
 
 outlet_segments = (
     seg_ids[
         down_seg_ids == 0
     ]
+    .astype(
+        np.int64
+    )
 )
 
 
+# ============================================================
+# REPORT
+# ============================================================
+
 print()
-print("============================================================")
+print("=" * 70)
 print("CREATE MIZUROUTE TOPOLOGY")
-print("============================================================")
+print("=" * 70)
 
 print(
-    f"Domain          : "
-    f"{domain_name}"
+    f"Domain              : {domain_name}"
 )
 
 print(
-    f"River network   : "
-    f"{river_file}"
+    f"Control file        : {CONTROL_FILE}"
 )
 
 print(
-    f"Routing basins  : "
-    f"{basin_file}"
+    f"River network       : {river_file}"
 )
 
 print(
-    f"Output          : "
-    f"{topology_file}"
+    f"Routing basins      : {basin_file}"
 )
 
 print(
-    f"Segments        : "
-    f"{num_seg}"
+    f"Output              : {topology_file}"
+)
+
+print()
+
+print(
+    f"Segments            : {num_seg}"
 )
 
 print(
-    f"Routing HRUs    : "
-    f"{num_hru}"
+    f"Routing HRUs        : {num_hru}"
 )
 
 print(
-    f"Outlet segments : "
-    f"{outlet_segments.tolist()}"
+    f"Natural outlets     : {len(natural_outlet_segments)}"
 )
 
+print(
+    f"Explicit outlets    : {len(requested_outlets)}"
+)
 
-if requested_outlets:
+print(
+    f"Final outlet count  : {len(outlet_segments)}"
+)
+
+print()
+
+
+if len(
+    natural_outlet_segments
+):
 
     print(
-        f"Forced outlets  : "
-        f"{requested_outlets}"
+        "Natural clipped-domain outlets:"
     )
 
-else:
+    for (
+        segment,
+        external_downstream
+    ) in zip(
+        natural_outlet_segments,
+        natural_external_down_ids
+    ):
+
+        print(
+            f"  {int(segment)}: "
+            f"{int(external_downstream)} -> 0"
+        )
+
+
+if forced_outlet_changes:
+
+    print()
 
     print(
-        "Forced outlets  : none"
+        "Explicitly forced outlets:"
     )
+
+    for (
+        segment,
+        original_downstream
+    ) in forced_outlet_changes:
+
+        print(
+            f"  {segment}: "
+            f"{original_downstream} -> 0"
+        )
 
 
 print()
 
 print(
-    f"Slope range     : "
-    f"{slopes.min():.8g} - "
+    "Final outlet segments:"
+)
+
+print(
+    outlet_segments.tolist()
+)
+
+print()
+
+print(
+    f"Slope range         : "
+    f"{slopes.min():.8g} to "
     f"{slopes.max():.8g}"
 )
 
 print(
-    f"Length range    : "
-    f"{lengths.min():.3f} - "
+    f"Length range        : "
+    f"{lengths.min():.3f} to "
     f"{lengths.max():.3f} m"
 )
 
 print(
-    f"Area range      : "
-    f"{areas.min():.3f} - "
+    f"Area range          : "
+    f"{areas.min():.3f} to "
     f"{areas.max():.3f} m2"
 )
 
@@ -813,7 +1183,7 @@ def create_and_fill_nc_var(
     ncid,
     var_name,
     var_type,
-    dim,
+    dimension,
     data,
     long_name,
     units
@@ -822,21 +1192,28 @@ def create_and_fill_nc_var(
     Create and populate a one-dimensional NetCDF variable.
     """
 
-    ncvar = ncid.createVariable(
+    variable = ncid.createVariable(
         var_name,
         var_type,
-        (dim,)
+        (
+            dimension,
+        )
     )
 
-    ncvar[:] = data
 
-    ncvar.long_name = (
+    variable[:] = data
+
+
+    variable.setncattr(
+        "long_name",
         long_name
     )
 
-    # Preserve existing CWARHM / mizuRoute
-    # topology metadata convention.
-    ncvar.unit = units
+
+    variable.setncattr(
+        "units",
+        units
+    )
 
 
 # ============================================================
@@ -858,8 +1235,9 @@ with nc4.Dataset(
 
     ncid.setncattr(
         "Author",
-        "Created by SUMMA workflow scripts"
+        "NWAM-SUMMA workflow"
     )
+
 
     ncid.setncattr(
         "History",
@@ -869,10 +1247,24 @@ with nc4.Dataset(
         )
     )
 
+
     ncid.setncattr(
         "Purpose",
-        "Create a river network .nc file "
-        "for mizuRoute routing"
+        "mizuRoute river-network topology"
+    )
+
+
+    ncid.setncattr(
+        "Domain",
+        domain_name
+    )
+
+
+    ncid.setncattr(
+        "Control_file",
+        str(
+            CONTROL_FILE
+        )
     )
 
 
@@ -884,6 +1276,7 @@ with nc4.Dataset(
         "seg",
         num_seg
     )
+
 
     ncid.createDimension(
         "hru",
@@ -916,7 +1309,7 @@ with nc4.Dataset(
         down_seg_ids.astype(
             np.int32
         ),
-        "ID of the downstream segment",
+        "ID of the downstream stream segment",
         "-"
     )
 
@@ -929,8 +1322,8 @@ with nc4.Dataset(
         slopes.astype(
             np.float64
         ),
-        "Segment slope",
-        "-"
+        "Stream-segment slope",
+        "m m-1"
     )
 
 
@@ -942,13 +1335,13 @@ with nc4.Dataset(
         lengths.astype(
             np.float64
         ),
-        "Segment length",
+        "Stream-segment length",
         "m"
     )
 
 
     # --------------------------------------------------------
-    # Routing HRU variables
+    # Routing-HRU variables
     # --------------------------------------------------------
 
     create_and_fill_nc_var(
@@ -959,7 +1352,7 @@ with nc4.Dataset(
         hru_ids.astype(
             np.int32
         ),
-        "Unique hru ID",
+        "Unique routing-HRU ID",
         "-"
     )
 
@@ -972,8 +1365,7 @@ with nc4.Dataset(
         hru_to_seg_ids.astype(
             np.int32
         ),
-        "ID of the stream segment to which "
-        "the HRU discharges",
+        "ID of stream segment receiving HRU runoff",
         "-"
     )
 
@@ -986,7 +1378,7 @@ with nc4.Dataset(
         areas.astype(
             np.float64
         ),
-        "HRU area",
+        "Routing-HRU area",
         "m^2"
     )
 
@@ -1002,8 +1394,9 @@ with nc4.Dataset(
 
     required_dimensions = {
         "seg",
-        "hru"
+        "hru",
     }
+
 
     required_variables = {
         "segId",
@@ -1012,7 +1405,7 @@ with nc4.Dataset(
         "length",
         "hruId",
         "hruToSegId",
-        "area"
+        "area",
     }
 
 
@@ -1035,16 +1428,16 @@ with nc4.Dataset(
     if missing_dimensions:
 
         raise RuntimeError(
-            "Written topology file is missing "
-            f"dimension(s): {missing_dimensions}"
+            "Written topology.nc is missing "
+            f"dimension(s): {sorted(missing_dimensions)}"
         )
 
 
     if missing_variables:
 
         raise RuntimeError(
-            "Written topology file is missing "
-            f"variable(s): {missing_variables}"
+            "Written topology.nc is missing "
+            f"variable(s): {sorted(missing_variables)}"
         )
 
 
@@ -1068,79 +1461,189 @@ with nc4.Dataset(
         )
 
 
-    written_seg_ids = (
-        check["segId"][:]
-        .astype(np.int64)
-    )
-
-    written_down_ids = (
-        check["downSegId"][:]
-        .astype(np.int64)
-    )
-
-    written_hru_ids = (
-        check["hruId"][:]
-        .astype(np.int64)
-    )
-
-    written_hru_to_seg = (
-        check["hruToSegId"][:]
-        .astype(np.int64)
+    written_seg_ids = np.asarray(
+        check[
+            "segId"
+        ][:],
+        dtype=np.int64
     )
 
 
-    if not np.array_equal(
-        written_seg_ids,
-        seg_ids
-    ):
+    written_down_ids = np.asarray(
+        check[
+            "downSegId"
+        ][:],
+        dtype=np.int64
+    )
 
-        raise RuntimeError(
-            "segId values changed while "
-            "writing topology.nc."
+
+    written_hru_ids = np.asarray(
+        check[
+            "hruId"
+        ][:],
+        dtype=np.int64
+    )
+
+
+    written_hru_to_seg = np.asarray(
+        check[
+            "hruToSegId"
+        ][:],
+        dtype=np.int64
+    )
+
+
+    written_slopes = np.asarray(
+        check[
+            "slope"
+        ][:],
+        dtype=np.float64
+    )
+
+
+    written_lengths = np.asarray(
+        check[
+            "length"
+        ][:],
+        dtype=np.float64
+    )
+
+
+    written_areas = np.asarray(
+        check[
+            "area"
+        ][:],
+        dtype=np.float64
+    )
+
+
+if not np.array_equal(
+    written_seg_ids,
+    seg_ids
+):
+
+    raise RuntimeError(
+        "segId changed while writing topology.nc."
+    )
+
+
+if not np.array_equal(
+    written_down_ids,
+    down_seg_ids
+):
+
+    raise RuntimeError(
+        "downSegId changed while writing topology.nc."
+    )
+
+
+if not np.array_equal(
+    written_hru_ids,
+    hru_ids
+):
+
+    raise RuntimeError(
+        "hruId changed while writing topology.nc."
+    )
+
+
+if not np.array_equal(
+    written_hru_to_seg,
+    hru_to_seg_ids
+):
+
+    raise RuntimeError(
+        "hruToSegId changed while writing topology.nc."
+    )
+
+
+if not np.allclose(
+    written_slopes,
+    slopes
+):
+
+    raise RuntimeError(
+        "slope changed while writing topology.nc."
+    )
+
+
+if not np.allclose(
+    written_lengths,
+    lengths
+):
+
+    raise RuntimeError(
+        "length changed while writing topology.nc."
+    )
+
+
+if not np.allclose(
+    written_areas,
+    areas
+):
+
+    raise RuntimeError(
+        "area changed while writing topology.nc."
+    )
+
+
+# Final connectivity verification from written data.
+
+written_segment_set = set(
+    written_seg_ids.tolist()
+)
+
+
+invalid_written_downstream = sorted(
+    {
+        int(value)
+        for value in written_down_ids
+        if (
+            int(value) != 0
+            and int(value)
+            not in written_segment_set
         )
+    }
+)
 
 
-    if not np.array_equal(
-        written_down_ids,
-        down_seg_ids
-    ):
+if invalid_written_downstream:
 
-        raise RuntimeError(
-            "downSegId values changed while "
-            "writing topology.nc."
-        )
+    raise RuntimeError(
+        "Written topology.nc contains invalid "
+        "downstream segment IDs:\n"
+        f"{invalid_written_downstream}"
+    )
 
 
-    if not np.array_equal(
-        written_hru_ids,
-        hru_ids
-    ):
+invalid_written_hru_links = sorted(
+    {
+        int(value)
+        for value in written_hru_to_seg
+        if int(value)
+        not in written_segment_set
+    }
+)
 
-        raise RuntimeError(
-            "hruId values changed while "
-            "writing topology.nc."
-        )
 
+if invalid_written_hru_links:
 
-    if not np.array_equal(
-        written_hru_to_seg,
-        hru_to_seg_ids
-    ):
-
-        raise RuntimeError(
-            "hruToSegId values changed while "
-            "writing topology.nc."
-        )
+    raise RuntimeError(
+        "Written topology.nc contains invalid "
+        "HRU-to-segment links:\n"
+        f"{invalid_written_hru_links}"
+    )
 
 
 # ============================================================
-# LOGGING / PROVENANCE
+# WORKFLOW LOG
 # ============================================================
 
 log_folder = (
     topology_path
     / "_workflow_log"
 )
+
 
 log_folder.mkdir(
     parents=True,
@@ -1153,10 +1656,17 @@ this_file = Path(
 ).name
 
 
-copyfile(
+copy2(
     Path(__file__).resolve(),
     log_folder
     / this_file
+)
+
+
+copy2(
+    CONTROL_FILE,
+    log_folder
+    / CONTROL_FILE.name
 )
 
 
@@ -1166,8 +1676,8 @@ now = datetime.now()
 log_file = (
     log_folder
     / (
-        f"{now:%Y%m%d}_"
-        f"make_river_network_topology.txt"
+        f"{now:%Y%m%d_%H%M%S}_"
+        "create_mizuroute_topology.txt"
     )
 )
 
@@ -1175,74 +1685,130 @@ log_file = (
 with open(
     log_file,
     "w"
-) as f:
+) as file:
 
-    f.write(
+    file.write(
         f"Log generated by {this_file} "
         f"on {now:%Y/%m/%d %H:%M:%S}\n"
     )
 
-    f.write(
-        f"Domain: "
-        f"{domain_name}\n"
+
+    file.write(
+        f"Domain: {domain_name}\n"
     )
 
-    f.write(
-        f"River network: "
-        f"{river_file}\n"
+
+    file.write(
+        f"Control file: {CONTROL_FILE}\n"
     )
 
-    f.write(
-        f"Routing basins: "
-        f"{basin_file}\n"
+
+    file.write(
+        f"River network: {river_file}\n"
     )
 
-    f.write(
-        f"Segments: "
-        f"{num_seg}\n"
+
+    file.write(
+        f"Routing basins: {basin_file}\n"
     )
 
-    f.write(
-        f"Routing HRUs: "
-        f"{num_hru}\n"
+
+    file.write(
+        f"Segments: {num_seg}\n"
     )
 
-    f.write(
-        "Outlet segments: "
-        f"{outlet_segments.tolist()}\n"
+
+    file.write(
+        f"Routing HRUs: {num_hru}\n"
     )
 
-    f.write(
-        "Forced outlets: "
+
+    file.write(
+        f"Natural clipped outlets: "
+        f"{natural_outlet_segments.tolist()}\n"
+    )
+
+
+    file.write(
+        f"Forced outlets: "
         f"{requested_outlets}\n"
     )
 
 
+    file.write(
+        f"Final outlets: "
+        f"{outlet_segments.tolist()}\n"
+    )
+
+
+    file.write(
+        f"Output: {topology_file}\n"
+    )
+
+
+    file.write(
+        "Shared control_active.txt used: no\n"
+    )
+
+
 # ============================================================
-# SUMMARY
+# FINISH
 # ============================================================
 
 print()
+print("=" * 70)
+print("MIZUROUTE TOPOLOGY CREATION COMPLETED")
+print("=" * 70)
+
 print(
-    "mizuRoute topology created successfully."
+    f"Domain             : {domain_name}"
 )
 
 print(
-    f"Segments     : "
-    f"{num_seg}"
+    f"Control file       : {CONTROL_FILE}"
 )
 
 print(
-    f"Routing HRUs : "
-    f"{num_hru}"
+    f"Segments           : {num_seg}"
 )
 
 print(
-    f"Outlets      : "
-    f"{outlet_segments.tolist()}"
+    f"Routing HRUs       : {num_hru}"
 )
 
 print(
-    f"Output       : "
-    f"{topology_file}"
+    f"Natural outlets    : {len(natural_outlet_segments)}"
+)
+
+print(
+    f"Forced outlets     : {len(requested_outlets)}"
+)
+
+print(
+    f"Final outlets      : {len(outlet_segments)}"
+)
+
+print(
+    f"Outlet segments    : {outlet_segments.tolist()}"
+)
+
+print(
+    f"Output             : {topology_file}"
+)
+
+print(
+    f"Workflow log       : {log_file}"
+)
+
+print()
+print(
+    "Network connectivity validation passed."
+)
+
+print(
+    "HRU-to-segment validation passed."
+)
+
+print(
+    "No control_active.txt was created or modified."
 )

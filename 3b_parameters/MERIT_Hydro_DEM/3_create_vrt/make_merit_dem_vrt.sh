@@ -1,91 +1,247 @@
 #!/bin/bash
 
-# Make a virtual dataset (VRT) for MERIT Hydro elevation data.
+# Create a MERIT-Hydro elevation VRT for one CWARHM domain.
+#
+# Usage:
+#
+# bash make_merit_dem_vrt.sh /path/to/control_DOMAIN.txt
+#
+# Example:
+#
+# bash make_merit_dem_vrt.sh \
+# /work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin/0_control_files/control_MERIT_717.txt
 
-# Load GDAL
-#module load lib/gdal/3.9.2
+set -euo pipefail
 
-# ---------------------------------
-# Specify settings
-# ---------------------------------
 
-# --- Location of unpacked MERIT Hydro data
+# ============================================================
+# CONTROL FILE
+# ============================================================
 
-dest_line=$(grep -m 1 "^parameter_dem_unpack_path" ../../../0_control_files/control_active.txt)
-source_path=$(echo ${dest_line##*|})
-source_path=$(echo ${source_path%%#*})
-source_path=$(echo "$source_path" | xargs)
+if [ "$#" -ne 1 ]; then
+    echo "Usage:"
+    echo "bash make_merit_dem_vrt.sh /path/to/control_DOMAIN.txt"
+    exit 1
+fi
+
+CONTROL=$(realpath "$1")
+
+if [ ! -f "$CONTROL" ]; then
+    echo "ERROR: Control file not found:"
+    echo "$CONTROL"
+    exit 1
+fi
+
+
+# ============================================================
+# CONTROL-FILE FUNCTION
+# ============================================================
+
+read_control() {
+
+    local setting="$1"
+    local value
+
+    value=$(
+        awk -F'|' -v key="$setting" '
+        /^[[:space:]]*#/ { next }
+        {
+            left=$1
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", left)
+
+            if (left == key) {
+                right=$2
+                sub(/#.*/, "", right)
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", right)
+                print right
+                exit
+            }
+        }
+        ' "$CONTROL"
+    )
+
+    if [ -z "$value" ]; then
+        echo "ERROR: Setting not found or empty: $setting" >&2
+        exit 1
+    fi
+
+    printf '%s\n' "$value"
+}
+
+
+# ============================================================
+# DOMAIN SETTINGS
+# ============================================================
+
+root_path=$(read_control "root_path")
+domain_name=$(read_control "domain_name")
+
+
+# ============================================================
+# SOURCE PATH
+# ============================================================
+
+source_path=$(read_control "parameter_dem_unpack_path")
 
 if [ "$source_path" = "default" ]; then
-
-    root_line=$(grep -m 1 "^root_path" ../../../0_control_files/control_active.txt)
-    root_path=$(echo ${root_line##*|})
-    root_path=$(echo ${root_path%%#*})
-    root_path=$(echo "$root_path" | xargs)
-
-    domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
-    domain_name=$(echo ${domain_line##*|})
-    domain_name=$(echo ${domain_name%%#*})
-    domain_name=$(echo "$domain_name" | xargs)
 
     source_path="${root_path}/domain_${domain_name}/parameters/dem/2_MERIT_hydro_unpacked_data"
 
 fi
 
-# --- Location where VRT data will go
 
-dest_line=$(grep -m 1 "^parameter_dem_vrt1_path" ../../../0_control_files/control_active.txt)
-dest_path=$(echo ${dest_line##*|})
-dest_path=$(echo ${dest_path%%#*})
-dest_path=$(echo "$dest_path" | xargs)
+# ============================================================
+# DESTINATION PATH
+# ============================================================
+
+dest_path=$(read_control "parameter_dem_vrt1_path")
 
 if [ "$dest_path" = "default" ]; then
-
-    root_line=$(grep -m 1 "^root_path" ../../../0_control_files/control_active.txt)
-    root_path=$(echo ${root_line##*|})
-    root_path=$(echo ${root_path%%#*})
-    root_path=$(echo "$root_path" | xargs)
-
-    domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
-    domain_name=$(echo ${domain_line##*|})
-    domain_name=$(echo ${domain_name%%#*})
-    domain_name=$(echo "$domain_name" | xargs)
 
     dest_path="${root_path}/domain_${domain_name}/parameters/dem/3_vrt"
 
 fi
 
-# Make destination directory
-mkdir -p "${dest_path}/filelists"
+mkdir -p \
+    "$dest_path/filelists"
 
-# ---------------------------------
-# Make the VRT
-# ---------------------------------
+
+# ============================================================
+# VALIDATE SOURCE DIRECTORY
+# ============================================================
+
+if [ ! -d "$source_path" ]; then
+    echo "ERROR: MERIT-Hydro unpacked-data directory not found:"
+    echo "$source_path"
+    exit 1
+fi
+
+
+# ============================================================
+# OUTPUT FILES
+# ============================================================
 
 OUTTXT="${dest_path}/filelists/MERIT_Hydro_dem_filelist.txt"
+
 OUTVRT="${dest_path}/MERIT_Hydro_dem.vrt"
 
-# Find all unpacked MERIT Hydro GeoTIFF files
-find "$source_path" -name "*.tif" > "$OUTTXT"
 
-# Build VRT
-gdalbuildvrt "$OUTVRT" \
+# ============================================================
+# REPORT
+# ============================================================
+
+echo
+echo "======================================================================"
+echo "CREATE MERIT-HYDRO DEM VRT"
+echo "======================================================================"
+echo
+echo "Domain      : $domain_name"
+echo "Control file: $CONTROL"
+echo "Source      : $source_path"
+echo "Destination : $dest_path"
+echo "File list   : $OUTTXT"
+echo "Output VRT  : $OUTVRT"
+echo
+
+
+# ============================================================
+# FIND MERIT-HYDRO GEOTIFF FILES
+# ============================================================
+
+find "$source_path" \
+    -type f \
+    -name "*.tif" \
+    | sort \
+    > "$OUTTXT"
+
+
+tif_count=$(wc -l < "$OUTTXT")
+
+if [ "$tif_count" -eq 0 ]; then
+
+    echo "ERROR: No MERIT-Hydro GeoTIFF files found in:"
+    echo "$source_path"
+
+    exit 1
+
+fi
+
+
+echo "MERIT-Hydro GeoTIFF files found: $tif_count"
+
+
+# ============================================================
+# BUILD VRT
+# ============================================================
+
+rm -f "$OUTVRT"
+
+gdalbuildvrt \
+    "$OUTVRT" \
     -input_file_list "$OUTTXT" \
     -resolution highest
 
-# ---------------------------------
-# Code provenance
-# ---------------------------------
+
+# ============================================================
+# VERIFY OUTPUT
+# ============================================================
+
+if [ ! -s "$OUTVRT" ]; then
+
+    echo "ERROR: MERIT-Hydro VRT was not created:"
+    echo "$OUTVRT"
+
+    exit 1
+
+fi
+
+
+echo
+echo "VRT created successfully."
+
+
+# ============================================================
+# WORKFLOW LOG
+# ============================================================
 
 log_path="${dest_path}/_workflow_log"
+
 mkdir -p "$log_path"
 
-today=$(date '+%F')
-log_file="${today}_compile_log.txt"
+timestamp=$(date '+%Y%m%d_%H%M%S')
 
-this_file='make_merit_dem_vrt.sh'
+log_file="${log_path}/${timestamp}_create_merit_dem_vrt.txt"
 
-echo "Log generated by ${this_file} on $(date '+%F %H:%M:%S')" > "$log_path/$log_file"
-echo 'Created Virtual Dataset from MERIT .tif data.' >> "$log_path/$log_file"
+this_file=$(basename "$0")
 
-cp "$this_file" "$log_path"
+
+cp "$0" \
+    "$log_path/$this_file"
+
+cp "$CONTROL" \
+    "$log_path/$(basename "$CONTROL")"
+
+
+{
+    echo "Log generated by ${this_file} on $(date '+%F %H:%M:%S')"
+    echo "Domain: ${domain_name}"
+    echo "Control file: ${CONTROL}"
+    echo "Source directory: ${source_path}"
+    echo "GeoTIFF files found: ${tif_count}"
+    echo "File list: ${OUTTXT}"
+    echo "Output VRT: ${OUTVRT}"
+} > "$log_file"
+
+
+# ============================================================
+# SUMMARY
+# ============================================================
+
+echo
+echo "======================================================================"
+echo "MERIT-HYDRO VRT CREATION COMPLETED"
+echo "======================================================================"
+echo "Domain        : $domain_name"
+echo "GeoTIFF files : $tif_count"
+echo "Output VRT    : $OUTVRT"
+echo "Workflow log  : $log_file"

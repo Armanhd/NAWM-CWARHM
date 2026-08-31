@@ -1,47 +1,77 @@
-# Create coldState.nc for the active NWAM-SUMMA domain.
+#!/usr/bin/env python3
+# coding: utf-8
+
+# Create coldState.nc for an NWAM-SUMMA domain.
 #
-# HRU ordering is read from the first forcing file listed in
-# forcingFileList.txt so that coldState.nc exactly follows the
-# forcing HRU order used by SUMMA.
+# Purpose
+# -------
+# Create the SUMMA initial-condition NetCDF using the HRU ordering
+# contained in the first forcing file listed in forcingFileList.txt.
+#
+# This guarantees that:
+#
+#   coldState.nc hruId
+#
+# exactly follows:
+#
+#   NWAM_SUMMA_forcing_YYYYMM.nc hruId
+#
+# IMPORTANT
+# ---------
+# This script reads the domain-specific control file supplied on the
+# command line.
+#
+# It does NOT read or modify control_active.txt.
 #
 # Model assumptions retained from the CWARHM setup:
+#
 #   - 8 soil layers
 #   - 0 initial snow layers
-#   - prescribed initial canopy, snow, aquifer, temperature,
-#     liquid-water, ice and matric-head states
+#   - prescribed initial canopy states
+#   - prescribed initial soil temperatures
+#   - prescribed liquid/ice fractions
+#   - prescribed aquifer storage
+#   - prescribed matric head
 #
-# These are initialization/model assumptions rather than
-# domain-specific paths.
+# Usage
+# -----
+#
+# python 1_create_coldState.py \
+#     /path/to/control_DOMAIN.txt
 
+import sys
 from pathlib import Path
 from datetime import datetime
 from shutil import copy2
 
+import netCDF4 as nc4
 import numpy as np
 import xarray as xr
-import netCDF4 as nc4
 
 
 # ============================================================
-# PROJECT / CONTROL FILE
+# CONTROL FILE
 # ============================================================
 
-SCRIPT_DIR = Path(__file__).resolve().parent
+if len(sys.argv) != 2:
 
-# Script:
-# CWARHM/5_model_input/SUMMA/1d_initial_conditions/
-# 1_create_coldState.py
-CWARHM_ROOT = SCRIPT_DIR.parents[2]
+    raise SystemExit(
+        "Usage:\n"
+        "python 1_create_coldState.py "
+        "/path/to/control_DOMAIN.txt"
+    )
 
-CONTROL_FILE = (
-    CWARHM_ROOT
-    / "0_control_files"
-    / "control_active.txt"
-)
+
+CONTROL_FILE = Path(
+    sys.argv[1]
+).resolve()
+
 
 if not CONTROL_FILE.exists():
+
     raise FileNotFoundError(
-        f"Control file not found:\n{CONTROL_FILE}"
+        f"Control file not found:\n"
+        f"{CONTROL_FILE}"
     )
 
 
@@ -50,6 +80,9 @@ if not CONTROL_FILE.exists():
 # ============================================================
 
 def read_from_control(file, setting):
+    """
+    Read one setting using exact control-key matching.
+    """
 
     with open(file) as contents:
 
@@ -58,28 +91,45 @@ def read_from_control(file, setting):
             stripped = line.strip()
 
             if (
-                stripped
-                and not stripped.startswith("#")
-                and "|" in stripped
+                not stripped
+                or stripped.startswith("#")
+                or "|" not in stripped
             ):
+                continue
 
-                left, right = stripped.split("|", 1)
+            left, right = stripped.split(
+                "|",
+                1
+            )
 
-                if left.strip() != setting:
-                    continue
+            if left.strip() != setting:
+                continue
 
-                return (
-                    right
-                    .split("#", 1)[0]
-                    .strip()
+            value = (
+                right
+                .split("#", 1)[0]
+                .strip()
+            )
+
+            if value == "":
+                raise ValueError(
+                    f"Setting '{setting}' is empty in:\n"
+                    f"{file}"
                 )
 
+            return value
+
     raise ValueError(
-        f"Setting not found in control file: {setting}"
+        f"Setting '{setting}' not found in:\n"
+        f"{file}"
     )
 
 
 def make_default_path(suffix):
+    """
+    Construct:
+        <root_path>/domain_<domain_name>/<suffix>
+    """
 
     root_path = Path(
         read_from_control(
@@ -101,6 +151,9 @@ def make_default_path(suffix):
 
 
 def resolve_path(setting, default_suffix):
+    """
+    Resolve a control-file path that may be set to 'default'.
+    """
 
     value = read_from_control(
         CONTROL_FILE,
@@ -108,11 +161,14 @@ def resolve_path(setting, default_suffix):
     )
 
     if value == "default":
+
         return make_default_path(
             default_suffix
         )
 
-    return Path(value)
+    return Path(
+        value
+    )
 
 
 # ============================================================
@@ -134,10 +190,12 @@ forcing_path = resolve_path(
     "forcing/4_SUMMA_input"
 )
 
+
 settings_path = resolve_path(
     "settings_summa_path",
     "settings/SUMMA"
 )
+
 
 settings_path.mkdir(
     parents=True,
@@ -150,6 +208,7 @@ coldstate_name = read_from_control(
     "settings_summa_coldstate"
 )
 
+
 forcing_list_name = read_from_control(
     CONTROL_FILE,
     "settings_summa_forcing_list"
@@ -161,6 +220,7 @@ coldstate_file = (
     / coldstate_name
 )
 
+
 forcing_list_file = (
     settings_path
     / forcing_list_name
@@ -168,13 +228,13 @@ forcing_list_file = (
 
 
 # ============================================================
-# VALIDATE FORCING FILE LIST
+# VALIDATE FORCING INPUTS
 # ============================================================
 
 if not forcing_path.exists():
 
     raise FileNotFoundError(
-        f"SUMMA forcing directory not found:\n"
+        "SUMMA forcing directory not found:\n"
         f"{forcing_path}"
     )
 
@@ -182,9 +242,10 @@ if not forcing_path.exists():
 if not forcing_list_file.exists():
 
     raise FileNotFoundError(
-        f"Forcing file list not found:\n"
-        f"{forcing_list_file}\n"
-        "Run Step 18 first."
+        "SUMMA forcing-file list not found:\n"
+        f"{forcing_list_file}\n\n"
+        "Run 1_create_forcing_file_list.py after the complete "
+        "forcing archive has been generated."
     )
 
 
@@ -196,13 +257,26 @@ with open(
         line.strip()
         for line in file
         if line.strip()
+        and not line.lstrip().startswith("#")
     ]
 
 
 if not forcing_names:
 
     raise RuntimeError(
-        f"Forcing file list is empty:\n"
+        "SUMMA forcing-file list is empty:\n"
+        f"{forcing_list_file}"
+    )
+
+
+# Check for duplicate names.
+
+if len(forcing_names) != len(
+    set(forcing_names)
+):
+
+    raise RuntimeError(
+        "Duplicate filenames were found in:\n"
         f"{forcing_list_file}"
     )
 
@@ -216,55 +290,79 @@ forcing_file = (
 if not forcing_file.exists():
 
     raise FileNotFoundError(
-        f"First forcing file listed in "
-        f"forcingFileList.txt does not exist:\n"
+        "First forcing file listed in forcingFileList.txt "
+        "does not exist:\n"
         f"{forcing_file}"
     )
 
 
 # ============================================================
-# READ HRU ORDER FROM FORCING
+# READ HRU ORDER FROM FIRST SUMMA FORCING FILE
 # ============================================================
 
 with xr.open_dataset(
     forcing_file
 ) as forcing:
 
-    if "hruId" not in forcing:
+    if "hru" not in forcing.dims:
 
         raise RuntimeError(
-            f"hruId not found in forcing file:\n"
+            "Forcing file does not contain an 'hru' dimension:\n"
             f"{forcing_file}"
         )
 
-    forcing_hru_ids = np.asarray(
-        forcing["hruId"].values
+
+    if "hruId" not in forcing:
+
+        raise RuntimeError(
+            "hruId not found in forcing file:\n"
+            f"{forcing_file}"
+        )
+
+    forcing_hru_ids = (
+        np.asarray(
+            forcing["hruId"].values
+        )
+        .reshape(-1)
     )
-
-
-forcing_hru_ids = (
-    forcing_hru_ids
-    .squeeze()
-)
-
+# ============================================================
+# VALIDATE HRU IDS
+# ============================================================
 
 if forcing_hru_ids.ndim != 1:
 
     raise RuntimeError(
-        "Forcing hruId must be one-dimensional. "
+        "Forcing hruId must be one-dimensional.\n"
         f"Shape found: {forcing_hru_ids.shape}"
     )
 
 
-if len(forcing_hru_ids) == 0:
+if forcing_hru_ids.size == 0:
 
     raise RuntimeError(
         "No HRU IDs found in forcing file."
     )
 
 
+try:
+
+    forcing_hru_ids_float = (
+        forcing_hru_ids
+        .astype(np.float64)
+    )
+
+except Exception as exc:
+
+    raise RuntimeError(
+        "Forcing hruId values could not be converted "
+        "to numeric values."
+    ) from exc
+
+
 if not np.all(
-    np.isfinite(forcing_hru_ids)
+    np.isfinite(
+        forcing_hru_ids_float
+    )
 ):
 
     raise RuntimeError(
@@ -272,13 +370,33 @@ if not np.all(
     )
 
 
+# Make sure the values are actually integers before casting.
+
+if not np.allclose(
+    forcing_hru_ids_float,
+    np.round(
+        forcing_hru_ids_float
+    )
+):
+
+    raise RuntimeError(
+        "Forcing hruId contains non-integer values."
+    )
+
+
 forcing_hru_ids = (
-    forcing_hru_ids
+    np.round(
+        forcing_hru_ids_float
+    )
     .astype(np.int64)
 )
 
 
-if len(np.unique(forcing_hru_ids)) != len(
+if len(
+    np.unique(
+        forcing_hru_ids
+    )
+) != len(
     forcing_hru_ids
 ):
 
@@ -296,18 +414,31 @@ num_hru = len(
 # FORCING TIME STEP
 # ============================================================
 
-dt_init = float(
-    read_from_control(
-        CONTROL_FILE,
-        "forcing_time_step_size"
+try:
+
+    dt_init = float(
+        read_from_control(
+            CONTROL_FILE,
+            "forcing_time_step_size"
+        )
     )
-)
 
-
-if dt_init <= 0:
+except Exception as exc:
 
     raise ValueError(
-        "forcing_time_step_size must be positive."
+        "forcing_time_step_size could not be converted "
+        "to a numeric value."
+    ) from exc
+
+
+if (
+    not np.isfinite(dt_init)
+    or dt_init <= 0
+):
+
+    raise ValueError(
+        "forcing_time_step_size must be finite "
+        "and greater than zero."
     )
 
 
@@ -315,14 +446,23 @@ if dt_init <= 0:
 # COLD-STATE MODEL ASSUMPTIONS
 # ============================================================
 
+# Number of active soil and snow layers.
+
 nSoil = 8
 nSnow = 0
+
+
+# SUMMA cold-state dimensions.
 
 midSoil = 8
 midToto = 8
 ifcToto = midToto + 1
 scalarv = 1
 
+
+# ------------------------------------------------------------
+# Layer geometry
+# ------------------------------------------------------------
 
 mLayerDepth = np.asarray(
     [
@@ -337,6 +477,7 @@ mLayerDepth = np.asarray(
     ],
     dtype=np.float64
 )
+
 
 iLayerHeight = np.asarray(
     [
@@ -354,21 +495,40 @@ iLayerHeight = np.asarray(
 )
 
 
-if len(mLayerDepth) != midToto:
+if len(
+    mLayerDepth
+) != midToto:
 
     raise RuntimeError(
         "mLayerDepth length does not match midToto."
     )
 
 
-if len(iLayerHeight) != ifcToto:
+if len(
+    iLayerHeight
+) != ifcToto:
 
     raise RuntimeError(
         "iLayerHeight length does not match ifcToto."
     )
 
 
-# Initial states
+if not np.isclose(
+    np.sum(
+        mLayerDepth
+    ),
+    iLayerHeight[-1]
+):
+
+    raise RuntimeError(
+        "Soil-layer depths are inconsistent with "
+        "the final interface height."
+    )
+
+
+# ============================================================
+# INITIAL STATES
+# ============================================================
 
 scalarCanopyIce = 0.0
 scalarCanopyLiq = 0.0
@@ -394,47 +554,110 @@ mLayerMatricHead = -1.0
 
 
 # ============================================================
-# NETCDF HELPER
+# NETCDF HELPERS
 # ============================================================
 
-def create_and_fill_nc_var(
-    nc,
+def create_scalar_hru_variable(
+    dataset,
     variable_name,
-    variable_value,
-    dim1,
-    dim2,
-    variable_dimension,
-    variable_type
+    value,
+    dtype="f8"
 ):
+    """
+    Create a SUMMA scalar-state variable with dimensions:
+        (scalarv, hru)
+    """
 
-    if variable_name in [
-        "iLayerHeight",
-        "mLayerDepth"
-    ]:
-
-        values = np.full(
-            (dim1, dim2),
-            variable_value
-        ).transpose()
-
-    else:
-
-        values = np.full(
-            (dim1, dim2),
-            variable_value
-        )
-
-
-    nc_variable = nc.createVariable(
+    variable = dataset.createVariable(
         variable_name,
-        variable_type,
+        dtype,
         (
-            variable_dimension,
+            "scalarv",
             "hru"
         )
     )
 
-    nc_variable[:] = values
+    variable[:, :] = np.full(
+        (
+            scalarv,
+            num_hru
+        ),
+        value
+    )
+
+    return variable
+
+
+def create_layer_hru_variable(
+    dataset,
+    variable_name,
+    value,
+    layer_dimension,
+    layer_count,
+    dtype="f8"
+):
+    """
+    Create a layer-state variable with dimensions:
+        (<layer_dimension>, hru)
+    """
+
+    variable = dataset.createVariable(
+        variable_name,
+        dtype,
+        (
+            layer_dimension,
+            "hru"
+        )
+    )
+
+    variable[:, :] = np.full(
+        (
+            layer_count,
+            num_hru
+        ),
+        value
+    )
+
+    return variable
+
+
+def create_layer_geometry_variable(
+    dataset,
+    variable_name,
+    values,
+    layer_dimension,
+    dtype="f8"
+):
+    """
+    Repeat one vertical layer geometry vector for every HRU.
+
+    Output shape:
+        (<layer_dimension>, hru)
+    """
+
+    values = np.asarray(
+        values,
+        dtype=np.float64
+    )
+
+
+    variable = dataset.createVariable(
+        variable_name,
+        dtype,
+        (
+            layer_dimension,
+            "hru"
+        )
+    )
+
+
+    variable[:, :] = np.repeat(
+        values[:, np.newaxis],
+        num_hru,
+        axis=1
+    )
+
+    return variable
 
 
 # ============================================================
@@ -442,22 +665,61 @@ def create_and_fill_nc_var(
 # ============================================================
 
 print()
-print("============================================================")
+print("=" * 70)
 print("CREATE SUMMA COLD STATE")
-print("============================================================")
-print(f"Domain           : {domain_name}")
-print(f"Forcing template : {forcing_file}")
-print(f"HRUs             : {num_hru}")
-print(f"First HRU ID     : {forcing_hru_ids[0]}")
-print(f"Last HRU ID      : {forcing_hru_ids[-1]}")
-print(f"Initial timestep : {dt_init} s")
-print(f"Soil layers      : {nSoil}")
-print(f"Output           : {coldstate_file}")
+print("=" * 70)
+
+print(
+    f"Domain           : {domain_name}"
+)
+
+print(
+    f"Control file     : {CONTROL_FILE}"
+)
+
+print(
+    f"Forcing list     : {forcing_list_file}"
+)
+
+print(
+    f"Forcing template : {forcing_file}"
+)
+
+print(
+    f"HRUs             : {num_hru}"
+)
+
+print(
+    f"First HRU ID     : {forcing_hru_ids[0]}"
+)
+
+print(
+    f"Last HRU ID      : {forcing_hru_ids[-1]}"
+)
+
+print(
+    f"Initial timestep : {dt_init:g} s"
+)
+
+print(
+    f"Soil layers      : {nSoil}"
+)
+
+print(
+    f"Snow layers      : {nSnow}"
+)
+
+print(
+    f"Output           : {coldstate_file}"
+)
 
 
 # ============================================================
 # CREATE coldState.nc
 # ============================================================
+
+# Existing file is intentionally replaced only after all
+# input validation above has passed.
 
 with nc4.Dataset(
     coldstate_file,
@@ -466,6 +728,11 @@ with nc4.Dataset(
 ) as cs:
 
     now = datetime.now()
+
+
+    # --------------------------------------------------------
+    # Global attributes
+    # --------------------------------------------------------
 
     cs.setncattr(
         "Author",
@@ -486,12 +753,19 @@ with nc4.Dataset(
     )
 
     cs.setncattr(
+        "Domain",
+        domain_name
+    )
+
+    cs.setncattr(
         "HRU_order_source",
         forcing_file.name
     )
 
 
+    # --------------------------------------------------------
     # Dimensions
+    # --------------------------------------------------------
 
     cs.createDimension(
         "hru",
@@ -519,66 +793,86 @@ with nc4.Dataset(
     )
 
 
+    # --------------------------------------------------------
     # HRU IDs
+    # --------------------------------------------------------
 
-    variable = cs.createVariable(
+    hru_variable = cs.createVariable(
         "hruId",
         "i8",
         ("hru",)
     )
 
-    variable.setncattr(
+    hru_variable.setncattr(
         "units",
         "-"
     )
 
-    variable.setncattr(
+    hru_variable.setncattr(
         "long_name",
-        "Index of hydrological response unit (HRU)"
+        "Hydrological response unit identifier"
     )
 
-    variable[:] = (
+    hru_variable[:] = (
         forcing_hru_ids
     )
 
 
+    # --------------------------------------------------------
     # Initial timestep
+    # --------------------------------------------------------
 
-    create_and_fill_nc_var(
+    variable = create_scalar_hru_variable(
         cs,
         "dt_init",
         dt_init,
-        1,
-        num_hru,
-        "scalarv",
         "f8"
     )
 
+    variable.setncattr(
+        "long_name",
+        "Initial model timestep"
+    )
 
+    variable.setncattr(
+        "units",
+        "s"
+    )
+
+
+    # --------------------------------------------------------
     # Number of layers
+    # --------------------------------------------------------
 
-    create_and_fill_nc_var(
+    variable = create_scalar_hru_variable(
         cs,
         "nSoil",
         nSoil,
-        1,
-        num_hru,
-        "scalarv",
         "i4"
     )
 
-    create_and_fill_nc_var(
+    variable.setncattr(
+        "long_name",
+        "Number of soil layers"
+    )
+
+
+    variable = create_scalar_hru_variable(
         cs,
         "nSnow",
         nSnow,
-        1,
-        num_hru,
-        "scalarv",
         "i4"
     )
 
+    variable.setncattr(
+        "long_name",
+        "Number of snow layers"
+    )
 
+
+    # --------------------------------------------------------
     # Scalar states
+    # --------------------------------------------------------
 
     scalar_states = {
         "scalarCanopyIce": scalarCanopyIce,
@@ -595,106 +889,220 @@ with nc4.Dataset(
 
     for name, value in scalar_states.items():
 
-        create_and_fill_nc_var(
+        create_scalar_hru_variable(
             cs,
             name,
             value,
-            1,
-            num_hru,
-            "scalarv",
             "f8"
         )
 
 
+    # --------------------------------------------------------
     # Layer states
+    # --------------------------------------------------------
 
-    create_and_fill_nc_var(
+    create_layer_hru_variable(
         cs,
         "mLayerTemp",
         mLayerTemp,
-        midToto,
-        num_hru,
         "midToto",
+        midToto,
         "f8"
     )
 
-    create_and_fill_nc_var(
+
+    create_layer_hru_variable(
         cs,
         "mLayerVolFracIce",
         mLayerVolFracIce,
-        midToto,
-        num_hru,
         "midToto",
+        midToto,
         "f8"
     )
 
-    create_and_fill_nc_var(
+
+    create_layer_hru_variable(
         cs,
         "mLayerVolFracLiq",
         mLayerVolFracLiq,
-        midToto,
-        num_hru,
         "midToto",
+        midToto,
         "f8"
     )
 
-    create_and_fill_nc_var(
+
+    create_layer_hru_variable(
         cs,
         "mLayerMatricHead",
         mLayerMatricHead,
-        midSoil,
-        num_hru,
         "midSoil",
+        midSoil,
         "f8"
     )
 
 
+    # --------------------------------------------------------
     # Layer geometry
+    # --------------------------------------------------------
 
-    create_and_fill_nc_var(
+    create_layer_geometry_variable(
         cs,
         "iLayerHeight",
         iLayerHeight,
-        num_hru,
-        ifcToto,
         "ifcToto",
         "f8"
     )
 
-    create_and_fill_nc_var(
+
+    create_layer_geometry_variable(
         cs,
         "mLayerDepth",
         mLayerDepth,
-        num_hru,
-        midToto,
         "midToto",
         "f8"
     )
 
 
 # ============================================================
-# VERIFY OUTPUT
+# VERIFY SAVED OUTPUT
 # ============================================================
 
 with xr.open_dataset(
     coldstate_file
-) as ds:
+) as saved:
 
-    output_hru_ids = (
-        ds["hruId"]
+    required_dimensions = {
+        "hru": num_hru,
+        "midSoil": midSoil,
+        "midToto": midToto,
+        "ifcToto": ifcToto,
+        "scalarv": scalarv,
+    }
+
+
+    for dimension, expected_size in (
+        required_dimensions.items()
+    ):
+
+        if dimension not in saved.sizes:
+
+            raise RuntimeError(
+                "coldState.nc is missing required "
+                f"dimension '{dimension}'."
+            )
+
+
+        if saved.sizes[
+            dimension
+        ] != expected_size:
+
+            raise RuntimeError(
+                "Unexpected dimension size in coldState.nc.\n"
+                f"Dimension : {dimension}\n"
+                f"Expected  : {expected_size}\n"
+                f"Found     : {saved.sizes[dimension]}"
+            )
+
+
+    required_variables = [
+        "hruId",
+        "dt_init",
+        "nSoil",
+        "nSnow",
+        "scalarCanopyIce",
+        "scalarCanopyLiq",
+        "scalarSnowDepth",
+        "scalarSWE",
+        "scalarSfcMeltPond",
+        "scalarAquiferStorage",
+        "scalarSnowAlbedo",
+        "scalarCanairTemp",
+        "scalarCanopyTemp",
+        "mLayerTemp",
+        "mLayerVolFracIce",
+        "mLayerVolFracLiq",
+        "mLayerMatricHead",
+        "iLayerHeight",
+        "mLayerDepth",
+    ]
+
+
+    missing_variables = [
+        variable
+        for variable in required_variables
+        if variable not in saved
+    ]
+
+
+    if missing_variables:
+
+        raise RuntimeError(
+            "coldState.nc is missing variable(s):\n"
+            + "\n".join(
+                f"  {name}"
+                for name in missing_variables
+            )
+        )
+
+
+    saved_hru_ids = (
+        saved["hruId"]
         .values
         .astype(np.int64)
     )
 
 
-if not np.array_equal(
-    forcing_hru_ids,
-    output_hru_ids
-):
+    if not np.array_equal(
+        forcing_hru_ids,
+        saved_hru_ids
+    ):
 
-    raise RuntimeError(
-        "coldState.nc HRU order does not match forcing."
-    )
+        raise RuntimeError(
+            "coldState.nc HRU order does not match "
+            "the SUMMA forcing."
+        )
+
+
+    # Ensure key state variables contain finite values.
+
+    variables_to_check = [
+        "dt_init",
+        "scalarCanopyIce",
+        "scalarCanopyLiq",
+        "scalarSnowDepth",
+        "scalarSWE",
+        "scalarAquiferStorage",
+        "scalarCanairTemp",
+        "scalarCanopyTemp",
+        "mLayerTemp",
+        "mLayerVolFracIce",
+        "mLayerVolFracLiq",
+        "mLayerMatricHead",
+        "iLayerHeight",
+        "mLayerDepth",
+    ]
+
+
+    for variable in variables_to_check:
+
+        values = np.asarray(
+            saved[
+                variable
+            ].values,
+            dtype=np.float64
+        )
+
+
+        if not np.all(
+            np.isfinite(
+                values
+            )
+        ):
+
+            raise RuntimeError(
+                f"{variable} contains non-finite values "
+                "in saved coldState.nc."
+            )
 
 
 # ============================================================
@@ -706,25 +1114,43 @@ log_folder = (
     / "_workflow_log"
 )
 
+
 log_folder.mkdir(
     parents=True,
     exist_ok=True
 )
 
 
-this_file = Path(__file__).name
+this_file = Path(
+    __file__
+).name
+
 
 copy2(
-    Path(__file__).resolve(),
-    log_folder / this_file
+    Path(
+        __file__
+    ).resolve(),
+    log_folder
+    / this_file
+)
+
+
+copy2(
+    CONTROL_FILE,
+    log_folder
+    / CONTROL_FILE.name
 )
 
 
 now = datetime.now()
 
+
 log_file = (
     log_folder
-    / f"{now:%Y%m%d}_make_initial_conditions_file.txt"
+    / (
+        f"{now:%Y%m%d_%H%M%S}_"
+        "create_summa_coldstate.txt"
+    )
 )
 
 
@@ -743,8 +1169,15 @@ with open(
     )
 
     file.write(
-        f"Forcing template: "
-        f"{forcing_file.name}\n"
+        f"Control file: {CONTROL_FILE}\n"
+    )
+
+    file.write(
+        f"Forcing list: {forcing_list_file}\n"
+    )
+
+    file.write(
+        f"Forcing template: {forcing_file}\n"
     )
 
     file.write(
@@ -752,16 +1185,88 @@ with open(
     )
 
     file.write(
+        f"First HRU ID: {forcing_hru_ids[0]}\n"
+    )
+
+    file.write(
+        f"Last HRU ID: {forcing_hru_ids[-1]}\n"
+    )
+
+    file.write(
         f"Soil layers: {nSoil}\n"
     )
 
     file.write(
-        f"Cold-state file: "
-        f"{coldstate_file}\n"
+        f"Snow layers: {nSnow}\n"
+    )
+
+    file.write(
+        f"Initial timestep: {dt_init:g} s\n"
+    )
+
+    file.write(
+        f"coldState file: {coldstate_file}\n"
+    )
+
+    file.write(
+        "Shared control_active.txt used: no\n"
     )
 
 
+# ============================================================
+# FINISH
+# ============================================================
+
 print()
-print("coldState.nc created successfully.")
-print(f"HRUs: {num_hru}")
-print(f"Output: {coldstate_file}")
+print("=" * 70)
+print("SUMMA COLD STATE CREATION COMPLETED")
+print("=" * 70)
+
+print(
+    f"Domain           : {domain_name}"
+)
+
+print(
+    f"Control file     : {CONTROL_FILE}"
+)
+
+print(
+    f"HRUs             : {num_hru}"
+)
+
+print(
+    f"First HRU ID     : {forcing_hru_ids[0]}"
+)
+
+print(
+    f"Last HRU ID      : {forcing_hru_ids[-1]}"
+)
+
+print(
+    f"Soil layers      : {nSoil}"
+)
+
+print(
+    f"Snow layers      : {nSnow}"
+)
+
+print(
+    f"Initial timestep : {dt_init:g} s"
+)
+
+print(
+    "HRU order        : matches SUMMA forcing"
+)
+
+print(
+    f"Output           : {coldstate_file}"
+)
+
+print(
+    f"Workflow log     : {log_file}"
+)
+
+print()
+print(
+    "No control_active.txt was created or modified."
+)

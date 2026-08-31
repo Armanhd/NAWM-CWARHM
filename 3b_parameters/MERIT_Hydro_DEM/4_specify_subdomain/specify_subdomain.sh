@@ -1,122 +1,256 @@
-# GDAL doc: https://gdal.org/programs/gdalwarp.html
-# MERIT doc: http://hydro.iis.u-tokyo.ac.jp/~yamadai/MERIT_Hydro/
+#!/bin/bash
 
-# Extract the modeling domain out of the larger-domain VRT.
+# Crop the MERIT-Hydro DEM VRT to one CWARHM domain.
+#
+# Usage:
+#
+# bash specify_subdomain.sh /path/to/control_DOMAIN.txt
+#
+# Example:
+#
+# bash specify_subdomain.sh \
+# /work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin/0_control_files/control_MERIT_717.txt
 
-# load gdal
-#module load lib/gdal/3.9.2
+set -euo pipefail
 
 
-#---------------------------------
-# Specify settings
-#---------------------------------
+# ============================================================
+# CONTROL FILE
+# ============================================================
 
-# --- Location of source VRT data
-dest_line=$(grep -m 1 "^parameter_dem_vrt1_path" ../../../0_control_files/control_active.txt) # full settings line
-source_path=$(echo ${dest_line##*|})   # removing the leading text up to '|'
-source_path=$(echo ${source_path%%#*}) # removing the trailing comments, if any are present
+if [ "$#" -ne 1 ]; then
+    echo "Usage:"
+    echo "bash specify_subdomain.sh /path/to/control_DOMAIN.txt"
+    exit 1
+fi
 
-# Specify the default path if needed
+CONTROL=$(realpath "$1")
+
+if [ ! -f "$CONTROL" ]; then
+    echo "ERROR: Control file not found:"
+    echo "$CONTROL"
+    exit 1
+fi
+
+
+# ============================================================
+# CONTROL-FILE FUNCTION
+# ============================================================
+
+read_control() {
+
+    local setting="$1"
+    local value
+
+    value=$(
+        awk -F'|' -v key="$setting" '
+        /^[[:space:]]*#/ { next }
+        {
+            left=$1
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", left)
+
+            if (left == key) {
+                right=$2
+                sub(/#.*/, "", right)
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", right)
+                print right
+                exit
+            }
+        }
+        ' "$CONTROL"
+    )
+
+    if [ -z "$value" ]; then
+        echo "ERROR: Setting not found or empty: $setting" >&2
+        exit 1
+    fi
+
+    printf '%s\n' "$value"
+}
+
+
+# ============================================================
+# DOMAIN SETTINGS
+# ============================================================
+
+root_path=$(read_control "root_path")
+domain_name=$(read_control "domain_name")
+
+
+# ============================================================
+# SOURCE VRT PATH
+# ============================================================
+
+source_path=$(read_control "parameter_dem_vrt1_path")
+
 if [ "$source_path" = "default" ]; then
-  
- # Get the root path and append the appropriate install directories
- root_line=$(grep -m 1 "^root_path" ../../../0_control_files/control_active.txt)
- root_path=$(echo ${root_line##*|}) 
- root_path=$(echo ${root_path%%#*})
-
- # domain name
- domain_line=$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
- domain_name=$(echo ${domain_line##*|}) 
- domain_name=$(echo ${domain_name%%#*})
- 
- # source path
- source_path="${root_path}/domain_${domain_name}/parameters/dem/3_vrt"
-
+    source_path="${root_path}/domain_${domain_name}/parameters/dem/3_vrt"
 fi
 
-# --- Location where cropped VRT needs to go
-dest_line=$(grep -m 1 "^parameter_dem_vrt2_path" ../../../0_control_files/control_active.txt) # full settings line
-dest_path=$(echo ${dest_line##*|})   # removing the leading text up to '|'
-dest_path=$(echo ${dest_path%%#*}) # removing the trailing comments, if any are present
 
-# Specify the default path if needed
+# ============================================================
+# DESTINATION PATH
+# ============================================================
+
+dest_path=$(read_control "parameter_dem_vrt2_path")
+
 if [ "$dest_path" = "default" ]; then
-  
- # Get the root path and append the appropriate install directories
- root_line=$(grep -m 1 "^root_path" ../../../0_control_files/control_active.txt)
- root_path=$(echo ${root_line##*|}) 
- root_path=$(echo ${root_path%%#*})
-
- # domain name
- domain_line==$(grep -m 1 "^domain_name" ../../../0_control_files/control_active.txt)
- domain_name=$(echo ${domain_line##*|}) 
- domain_name=$(echo ${domain_name%%#*})
- 
- # destination path
- dest_path="${root_path}/domain_${domain_name}/parameters/dem/4_domain_vrt"
+    dest_path="${root_path}/domain_${domain_name}/parameters/dem/4_domain_vrt"
 fi
 
-# Make destination directory 
-mkdir -p $dest_path
+mkdir -p "$dest_path"
 
 
-# --- Find dimensions of modeling domain
-domain_line=$(grep -m 1 "^forcing_raw_space" ../../../0_control_files/control_active.txt) # full settings line
-domain_full=$(echo ${domain_line##*|})   # removing the leading text up to '|'
-domain_full=$(echo ${domain_full%%#*}) # removing the trailing comments, if any are present
+# ============================================================
+# DOMAIN EXTENT
+# ============================================================
 
-# Separate the values into an array
-while IFS='/' read -ra domain_array; do
- LAT_MAX=${domain_array[0]}
- LON_MIN=${domain_array[1]}
- LAT_MIN=${domain_array[2]}
- LON_MAX=${domain_array[3]}
-done <<< "$domain_full"
+domain_full=$(read_control "forcing_raw_space")
 
+IFS='/' read -r LAT_MAX LON_MIN LAT_MIN LON_MAX <<< "$domain_full"
 
-#---------------------------------
-# Crop the domain
-#---------------------------------
-
-# Find the source file
-source_file=$(find $source_path/*.vrt)
-
-# Extract the filename
-filename=$(basename -- $source_file)
-
-# Make the output filename
-dest_file=$dest_path/"domain_"$filename
-
-# Do the cut out
-gdal_translate -of VRT -projwin $LON_MIN $LAT_MAX $LON_MAX $LAT_MIN $source_file $dest_file
+if (
+    [ -z "$LAT_MAX" ] ||
+    [ -z "$LON_MIN" ] ||
+    [ -z "$LAT_MIN" ] ||
+    [ -z "$LON_MAX" ]
+); then
+    echo "ERROR: forcing_raw_space must have format:"
+    echo "LAT_MAX/LON_MIN/LAT_MIN/LON_MAX"
+    exit 1
+fi
 
 
-#---------------------------------
-# Code provenance
-#---------------------------------
-# Generates a basic log file in the domain folder and copies the control file and itself there.
-# Make a log directory if it doesn't exist
+# ============================================================
+# FIND SOURCE VRT
+# ============================================================
+
+if [ ! -d "$source_path" ]; then
+    echo "ERROR: Source VRT directory not found:"
+    echo "$source_path"
+    exit 1
+fi
+
+mapfile -t vrt_files < <(
+    find "$source_path" \
+        -maxdepth 1 \
+        -type f \
+        -name "*.vrt" \
+        | sort
+)
+
+if [ "${#vrt_files[@]}" -eq 0 ]; then
+    echo "ERROR: No VRT files found in:"
+    echo "$source_path"
+    exit 1
+fi
+
+if [ "${#vrt_files[@]}" -gt 1 ]; then
+    echo "ERROR: Expected exactly one source VRT but found:"
+    printf '  %s\n' "${vrt_files[@]}"
+    exit 1
+fi
+
+source_file="${vrt_files[0]}"
+
+filename=$(basename "$source_file")
+
+dest_file="${dest_path}/domain_${filename}"
+
+
+# ============================================================
+# REPORT
+# ============================================================
+
+echo
+echo "======================================================================"
+echo "CROP MERIT-HYDRO DEM TO DOMAIN"
+echo "======================================================================"
+echo
+echo "Domain       : $domain_name"
+echo "Control file : $CONTROL"
+echo "Source VRT   : $source_file"
+echo "Destination  : $dest_file"
+echo
+echo "Domain extent:"
+echo "  latitude : $LAT_MIN to $LAT_MAX"
+echo "  longitude: $LON_MIN to $LON_MAX"
+echo
+
+
+# ============================================================
+# REMOVE STALE OUTPUT
+# ============================================================
+
+rm -f "$dest_file"
+
+
+# ============================================================
+# CROP DOMAIN
+# ============================================================
+
+gdal_translate \
+    -of VRT \
+    -projwin \
+    "$LON_MIN" \
+    "$LAT_MAX" \
+    "$LON_MAX" \
+    "$LAT_MIN" \
+    "$source_file" \
+    "$dest_file"
+
+
+# ============================================================
+# VERIFY OUTPUT
+# ============================================================
+
+if [ ! -s "$dest_file" ]; then
+    echo "ERROR: Cropped domain VRT was not created:"
+    echo "$dest_file"
+    exit 1
+fi
+
+
+# ============================================================
+# WORKFLOW LOG
+# ============================================================
+
 log_path="${dest_path}/_workflow_log"
-mkdir -p $log_path
 
-# Log filename
-today=`date '+%F'`
-log_file="${today}_specify_subdomain_log.txt"
+mkdir -p "$log_path"
 
-# Make the log
-this_file='specify_subdomain.sh'
-echo "Log generated by ${this_file} on `date '+%F %H:%M:%S'`"  > $log_path/$log_file # 1st line, store in new file
-echo 'Cropped VRTs to modeling domain.' >> $log_path/$log_file # 2nd line, append to existing file
+timestamp=$(date '+%Y%m%d_%H%M%S')
 
-# Copy this file to log directory
-cp $this_file $log_path
+log_file="${log_path}/${timestamp}_specify_subdomain.txt"
 
+this_file=$(basename "$0")
 
+cp "$0" \
+    "$log_path/$this_file"
 
+cp "$CONTROL" \
+    "$log_path/$(basename "$CONTROL")"
 
 
+{
+    echo "Log generated by ${this_file} on $(date '+%F %H:%M:%S')"
+    echo "Domain: ${domain_name}"
+    echo "Control file: ${CONTROL}"
+    echo "Source VRT: ${source_file}"
+    echo "Output VRT: ${dest_file}"
+    echo "Latitude bounds: ${LAT_MIN} to ${LAT_MAX}"
+    echo "Longitude bounds: ${LON_MIN} to ${LON_MAX}"
+} > "$log_file"
 
 
+# ============================================================
+# SUMMARY
+# ============================================================
 
-
-
+echo
+echo "======================================================================"
+echo "MERIT-HYDRO DOMAIN CROPPING COMPLETED"
+echo "======================================================================"
+echo "Domain       : $domain_name"
+echo "Output VRT   : $dest_file"
+echo "Workflow log : $log_file"

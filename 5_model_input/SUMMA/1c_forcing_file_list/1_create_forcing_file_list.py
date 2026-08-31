@@ -1,43 +1,57 @@
-# Create forcingFileList.txt for the active SUMMA domain.
+#!/usr/bin/env python3
+# coding: utf-8
+
+# Create forcingFileList.txt for a selected SUMMA domain.
 #
+# Purpose
+# -------
 # This script:
-#   - locates CWARHM from its own file location
-#   - reads control_active.txt
+#   - reads a domain-specific control file supplied on the command line
 #   - finds NWAM_SUMMA_forcing_YYYYMM.nc files
 #   - validates filenames and chronological continuity
 #   - compares available months against forcing_raw_time
 #   - writes forcingFileList.txt in chronological order
 #   - stores workflow provenance
 #
-# Reproducible for any domain selected through control_active.txt.
+# IMPORTANT
+# ---------
+# This script does NOT read or modify control_active.txt.
+#
+# Usage
+# -----
+# python 1_create_forcing_file_list.py \
+# /path/to/control_DOMAIN.txt
 
+import sys
+import re
 from pathlib import Path
 from datetime import datetime
 from shutil import copy2
-import re
 
 
 # ============================================================
-# PROJECT / CONTROL FILE
+# CONTROL FILE
 # ============================================================
 
-SCRIPT_DIR = Path(__file__).resolve().parent
+if len(sys.argv) != 2:
 
-# Script:
-# CWARHM/5_model_input/SUMMA/1c_forcing_file_list/
-# 1_create_forcing_file_list.py
-CWARHM_ROOT = SCRIPT_DIR.parents[2]
+    raise SystemExit(
+        "Usage:\n"
+        "python 1_create_forcing_file_list.py "
+        "/path/to/control_DOMAIN.txt"
+    )
 
-CONTROL_FILE = (
-    CWARHM_ROOT
-    / "0_control_files"
-    / "control_active.txt"
-)
+
+CONTROL_FILE = Path(
+    sys.argv[1]
+).resolve()
+
 
 if not CONTROL_FILE.exists():
 
     raise FileNotFoundError(
-        f"Control file not found:\n{CONTROL_FILE}"
+        f"Control file not found:\n"
+        f"{CONTROL_FILE}"
     )
 
 
@@ -46,6 +60,9 @@ if not CONTROL_FILE.exists():
 # ============================================================
 
 def read_from_control(file, setting):
+    """
+    Read one setting using exact control-key matching.
+    """
 
     with open(file) as contents:
 
@@ -54,28 +71,46 @@ def read_from_control(file, setting):
             stripped = line.strip()
 
             if (
-                stripped
-                and not stripped.startswith("#")
-                and "|" in stripped
+                not stripped
+                or stripped.startswith("#")
+                or "|" not in stripped
             ):
+                continue
 
-                left, right = stripped.split("|", 1)
+            left, right = stripped.split(
+                "|",
+                1
+            )
 
-                if left.strip() != setting:
-                    continue
+            if left.strip() != setting:
+                continue
 
-                return (
-                    right
-                    .split("#", 1)[0]
-                    .strip()
+            value = (
+                right
+                .split("#", 1)[0]
+                .strip()
+            )
+
+            if value == "":
+
+                raise ValueError(
+                    f"Setting '{setting}' is empty in:\n"
+                    f"{file}"
                 )
 
+            return value
+
     raise ValueError(
-        f"Setting not found in control file: {setting}"
+        f"Setting '{setting}' not found in:\n"
+        f"{file}"
     )
 
 
 def make_default_path(suffix):
+    """
+    Construct:
+        <root_path>/domain_<domain_name>/<suffix>
+    """
 
     root_path = Path(
         read_from_control(
@@ -96,7 +131,13 @@ def make_default_path(suffix):
     )
 
 
-def month_sequence(start_year, end_year):
+def month_sequence(
+    start_year,
+    end_year
+):
+    """
+    Return YYYYMM strings for every month in the period.
+    """
 
     months = []
 
@@ -136,6 +177,7 @@ forcing_path_setting = read_from_control(
     "forcing_summa_path"
 )
 
+
 if forcing_path_setting == "default":
 
     forcing_path = make_default_path(
@@ -152,19 +194,20 @@ else:
 if not forcing_path.exists():
 
     raise FileNotFoundError(
-        f"SUMMA forcing directory not found:\n"
+        "SUMMA forcing directory not found:\n"
         f"{forcing_path}"
     )
 
 
 # ============================================================
-# OUTPUT FILE LIST PATH
+# OUTPUT SETTINGS PATH
 # ============================================================
 
 settings_path_setting = read_from_control(
     CONTROL_FILE,
     "settings_summa_path"
 )
+
 
 if settings_path_setting == "default":
 
@@ -190,6 +233,7 @@ file_list_name = read_from_control(
     "settings_summa_forcing_list"
 )
 
+
 file_list_file = (
     settings_path
     / file_list_name
@@ -205,29 +249,39 @@ forcing_raw_time = read_from_control(
     "forcing_raw_time"
 )
 
+
 try:
 
-    start_year_text, end_year_text = [
+    year_parts = [
         item.strip()
         for item in forcing_raw_time.split(",")
     ]
 
-    start_year = int(start_year_text)
-    end_year = int(end_year_text)
+    if len(year_parts) != 2:
+        raise ValueError
+
+    start_year = int(
+        year_parts[0]
+    )
+
+    end_year = int(
+        year_parts[1]
+    )
 
 except Exception as exc:
 
     raise ValueError(
-        "forcing_raw_time must have format "
-        "'START_YEAR,END_YEAR', for example "
-        "'1950,2019'."
+        "forcing_raw_time must have format:\n"
+        "START_YEAR,END_YEAR\n\n"
+        "Example:\n"
+        "1950,2019"
     ) from exc
 
 
 if start_year > end_year:
 
     raise ValueError(
-        f"Invalid forcing_raw_time: "
+        "Invalid forcing_raw_time:\n"
         f"{start_year},{end_year}"
     )
 
@@ -252,13 +306,13 @@ forcing_files = sorted(
 if not forcing_files:
 
     raise RuntimeError(
-        f"No NWAM SUMMA forcing files found in:\n"
+        "No NWAM SUMMA forcing files found in:\n"
         f"{forcing_path}"
     )
 
 
 # ============================================================
-# VALIDATE FILENAMES AND EXTRACT YYYYMM
+# VALIDATE FILENAMES
 # ============================================================
 
 pattern = re.compile(
@@ -267,33 +321,38 @@ pattern = re.compile(
 
 
 files_by_month = {}
-
 invalid_files = []
 
 
-for file in forcing_files:
+for forcing_file in forcing_files:
 
     match = pattern.match(
-        file.name
+        forcing_file.name
     )
 
     if not match:
 
         invalid_files.append(
-            file.name
+            forcing_file.name
         )
 
         continue
 
+
     month = match.group(1)
+
 
     if month in files_by_month:
 
         raise RuntimeError(
-            f"Duplicate forcing month found: {month}"
+            "Duplicate forcing month found:\n"
+            f"{month}"
         )
 
-    files_by_month[month] = file
+
+    files_by_month[
+        month
+    ] = forcing_file
 
 
 if invalid_files:
@@ -313,10 +372,11 @@ available_months = sorted(
 
 
 # ============================================================
-# CHECK MONTH VALIDITY
+# CHECK YYYYMM VALUES
 # ============================================================
 
 invalid_months = []
+
 
 for month in available_months:
 
@@ -327,6 +387,7 @@ for month in available_months:
     month_number = int(
         month[4:6]
     )
+
 
     if (
         year < 1
@@ -368,6 +429,7 @@ missing_months = sorted(
     - available_set
 )
 
+
 extra_months = sorted(
     available_set
     - expected_set
@@ -375,21 +437,44 @@ extra_months = sorted(
 
 
 print()
-print("============================================================")
+print("=" * 70)
 print("CREATE SUMMA FORCING FILE LIST")
-print("============================================================")
-print(f"Domain          : {domain_name}")
-print(f"Forcing path    : {forcing_path}")
-print(f"Expected period : {expected_months[0]} - {expected_months[-1]}")
-print(f"Expected files  : {len(expected_months)}")
-print(f"Available files : {len(available_months)}")
+print("=" * 70)
+
+print(
+    f"Domain          : {domain_name}"
+)
+
+print(
+    f"Control file    : {CONTROL_FILE}"
+)
+
+print(
+    f"Forcing path    : {forcing_path}"
+)
+
+print(
+    f"Expected period : "
+    f"{expected_months[0]} - "
+    f"{expected_months[-1]}"
+)
+
+print(
+    f"Expected files  : "
+    f"{len(expected_months)}"
+)
+
+print(
+    f"Available files : "
+    f"{len(available_months)}"
+)
 
 
 if missing_months:
 
     print()
     print(
-        f"Missing months: "
+        f"Missing months  : "
         f"{len(missing_months)}"
     )
 
@@ -408,7 +493,7 @@ if extra_months:
 
     print()
     print(
-        f"Months outside forcing_raw_time: "
+        "Months outside forcing_raw_time: "
         f"{len(extra_months)}"
     )
 
@@ -422,13 +507,16 @@ if extra_months:
 if missing_months:
 
     raise RuntimeError(
-        "SUMMA forcing archive is incomplete "
-        "for forcing_raw_time. "
+        "SUMMA forcing archive is incomplete for "
+        "forcing_raw_time.\n"
         f"Missing {len(missing_months)} month(s)."
     )
 
 
-# Only use the months specified by forcing_raw_time.
+# ============================================================
+# BUILD ORDERED FILE LIST
+# ============================================================
+
 ordered_files = [
     files_by_month[month]
     for month in expected_months
@@ -453,7 +541,60 @@ with open(
 
 
 # ============================================================
-# LOGGING
+# VERIFY WRITTEN LIST
+# ============================================================
+
+written_lines = [
+    line.strip()
+    for line in file_list_file.read_text().splitlines()
+    if line.strip()
+]
+
+
+if len(written_lines) != len(
+    expected_months
+):
+
+    raise RuntimeError(
+        "forcingFileList.txt has an incorrect "
+        "number of entries.\n"
+        f"Expected: {len(expected_months)}\n"
+        f"Found   : {len(written_lines)}"
+    )
+
+
+expected_first = (
+    f"NWAM_SUMMA_forcing_"
+    f"{expected_months[0]}.nc"
+)
+
+
+expected_last = (
+    f"NWAM_SUMMA_forcing_"
+    f"{expected_months[-1]}.nc"
+)
+
+
+if written_lines[0] != expected_first:
+
+    raise RuntimeError(
+        "Unexpected first forcing file.\n"
+        f"Expected: {expected_first}\n"
+        f"Found   : {written_lines[0]}"
+    )
+
+
+if written_lines[-1] != expected_last:
+
+    raise RuntimeError(
+        "Unexpected last forcing file.\n"
+        f"Expected: {expected_last}\n"
+        f"Found   : {written_lines[-1]}"
+    )
+
+
+# ============================================================
+# WORKFLOW LOG
 # ============================================================
 
 log_folder = (
@@ -461,25 +602,41 @@ log_folder = (
     / "_workflow_log"
 )
 
+
 log_folder.mkdir(
     parents=True,
     exist_ok=True
 )
 
 
-this_file = Path(__file__).name
+this_file = Path(
+    __file__
+).name
+
 
 copy2(
     Path(__file__).resolve(),
-    log_folder / this_file
+    log_folder
+    / this_file
+)
+
+
+copy2(
+    CONTROL_FILE,
+    log_folder
+    / CONTROL_FILE.name
 )
 
 
 now = datetime.now()
 
+
 log_file = (
     log_folder
-    / f"{now:%Y%m%d}_make_forcing_file_list.txt"
+    / (
+        f"{now:%Y%m%d_%H%M%S}_"
+        "create_summa_forcing_file_list.txt"
+    )
 )
 
 
@@ -495,6 +652,10 @@ with open(
 
     file.write(
         f"Domain: {domain_name}\n"
+    )
+
+    file.write(
+        f"Control file: {CONTROL_FILE}\n"
     )
 
     file.write(
@@ -516,14 +677,45 @@ with open(
         f"{len(ordered_files)}\n"
     )
 
+    file.write(
+        "Shared control_active.txt used: no\n"
+    )
+
 
 # ============================================================
-# SUMMARY
+# FINISH
 # ============================================================
 
 print()
-print("SUMMA forcing file list created successfully.")
-print(f"Files listed : {len(ordered_files)}")
-print(f"First file   : {ordered_files[0].name}")
-print(f"Last file    : {ordered_files[-1].name}")
-print(f"Output       : {file_list_file}")
+print("=" * 70)
+print("SUMMA FORCING FILE LIST CREATION COMPLETED")
+print("=" * 70)
+
+print(
+    f"Domain       : {domain_name}"
+)
+
+print(
+    f"Files listed : {len(ordered_files)}"
+)
+
+print(
+    f"First file   : {ordered_files[0].name}"
+)
+
+print(
+    f"Last file    : {ordered_files[-1].name}"
+)
+
+print(
+    f"Output       : {file_list_file}"
+)
+
+print(
+    f"Workflow log : {log_file}"
+)
+
+print()
+print(
+    "No control_active.txt was created or modified."
+)

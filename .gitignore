@@ -32,3 +32,23 @@ nwam_env_update_*.err
 
 # Local backup scripts
 *_original.sh
+# ============================================================
+# NAWM multibasin generated files
+# ============================================================
+
+# Automatically generated control-file backups
+0_control_files/*_backup_*.txt
+
+# Automatically generated multibasin task lists
+0_control_files/month_tasks_*.txt
+0_control_files/multibasin_preprocessing_*.txt
+0_control_files/multibasin_month_tasks_*.txt
+
+# Slurm logs
+slurm_logs/
+**/slurm_logs/
+slurm-*.out
+slurm-*.err
+
+# Accidental/temporary topology directory
+5_model_input/mizuRoute/1b_network_topology_file/n/

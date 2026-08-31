@@ -1,200 +1,1359 @@
-# Create all area-weighted forcing files
-# We need to find how the ERA5 gridded forcing maps onto the catchment to create area-weighted forcing as SUMMA input. This involves two steps:
-# 1. Intersect the ERA5 shape with the user's catchment shape to find the overlap between a given (sub) catchment and the forcing grid;
-# 2. Create an area-weighted, catchment-averaged forcing time series.
-#
-# The EASYMORE package (https://github.com/ShervanGharari/candex_newgen) provides the necessary functionality to do this. EASYMORE performs the GIS step (1, shapefile intersection) and the area-weighting step (2, create new forcing `.nc` files) as part of a single `nc_remapper()` call. To allow for parallelization, EASYMORE can save the output from the GIS step into a restart `.csv` file which can be used to skip the GIS step. This allows (manual) parallelization of area-weighted forcing file generation after the GIS procedures have been run once. The full workflow is thus:
-# 1. [Previous script] Call `nc_remapper()` with ERA5 and user's shapefile, and one ERA5 forcing `.nc` file;
-#    - EASYMORE performs intersection of both shapefiles;
-#    - EASYMORE saves the outcomes of this intersection to a `.csv` file;
-#    - EASYMORE creates an area-weighted forcing file from a single provided ERA5 source `.nc` file
-# 2. [This script] Call `nc_remapper()` with intersection `.csv` file and all other forcing `.nc` files.
-# 3. [Follow-up script] Apply lapse rates to temperature variable.
-#
-# Parallelization of step 2 (2nd `nc_remapper()` call) requires an external loop that sends (batches of) the remaining ERA5 raw forcing files to individual processors. As with other steps that may be parallelized, creating code that does this is left to the user.
+#!/usr/bin/env python3
+# coding: utf-8
 
-# modules
-import os
-import easymore
+"""
+Create reusable ERA5 -> SUMMA HRU EASYMORE remapping information.
+
+Purpose
+-------
+Use one prepared ERA5 monthly forcing file to:
+
+1. intersect the ERA5 forcing grid with the prepared CWARHM HRUs;
+2. generate reusable EASYMORE remapping information;
+3. create one test basin-averaged ERA5 forcing file.
+
+NWAM uses ERA5 for:
+
+    airpres
+    LWRadAtm
+    SWRadAtm
+    spechum
+    windspd
+
+Multibasin behavior
+-------------------
+A domain-specific control file must be supplied explicitly.
+
+The script does NOT read or modify control_active.txt.
+
+Target shapefile
+----------------
+The EASYMORE target shapefile is always the prepared CWARHM
+catchment:
+
+    <root_path>/domain_<domain_name>/shapefiles/catchment/
+
+It is NOT the original read-only MERIT source shapefile.
+
+Source forcing
+--------------
+Prepared ERA5 forcing is expected at:
+
+    forcing/1_raw_data/ERA5_prepared/
+
+with filenames:
+
+    ERA5_SUMMA_YYYYMM.nc
+
+Source forcing grid
+-------------------
+The ERA5 grid shapefile is defined by:
+
+    forcing_shape_path
+    forcing_era5_shape_name
+
+Output
+------
+Reusable remapping products are stored in:
+
+    shapefiles/catchment_intersection/with_forcing/ERA5/
+
+The one-month test remapped forcing is stored in:
+
+    forcing/3_basin_averaged_data/ERA5/
+
+Usage
+-----
+python 1a_remap_ERA5.py \
+/path/to/control_DOMAIN.txt
+"""
+
+import sys
 from pathlib import Path
-from shutil import rmtree
-from shutil import copyfile
+from shutil import rmtree, copy2
 from datetime import datetime
 
+import geopandas as gpd
+import numpy as np
+import xarray as xr
+import easymore
 
-# --- Control file handling
-# Easy access to control file folder
-controlFolder = Path('../../0_control_files')
 
-# Store the name of the 'active' file in a variable
-controlFile = 'control_active.txt'
+# ============================================================
+# INPUT CONTROL FILE
+# ============================================================
 
-# Function to extract a given setting from the control file
-def read_from_control( file, setting ):
-    
-    # Open 'control_active.txt' and ...
+if len(sys.argv) != 2:
+
+    raise SystemExit(
+        "Usage:\n"
+        "python 1a_remap_ERA5.py "
+        "/path/to/control_DOMAIN.txt"
+    )
+
+
+CONTROL_FILE = Path(
+    sys.argv[1]
+).resolve()
+
+
+if not CONTROL_FILE.exists():
+
+    raise FileNotFoundError(
+        f"Control file not found:\n"
+        f"{CONTROL_FILE}"
+    )
+
+
+# ============================================================
+# CONTROL FUNCTIONS
+# ============================================================
+
+def read_from_control(file, setting):
+    """
+    Read one setting using exact control-key matching.
+    """
+
     with open(file) as contents:
+
         for line in contents:
-            
-            # ... find the line with the requested setting
-            if setting in line and not line.startswith('#'):
-                break
-    
-    # Extract the setting's value
-    substring = line.split('|',1)[1]      # Remove the setting's name (split into 2 based on '|', keep only 2nd part)
-    substring = substring.split('#',1)[0] # Remove comments, does nothing if no '#' is found
-    substring = substring.strip()         # Remove leading and trailing whitespace, tabs, newlines
-       
-    # Return this value    
-    return substring
-    
-# Function to specify a default path
+
+            stripped = line.strip()
+
+            if (
+                not stripped
+                or stripped.startswith("#")
+                or "|" not in stripped
+            ):
+                continue
+
+            left, right = stripped.split(
+                "|",
+                1
+            )
+
+            if left.strip() != setting:
+                continue
+
+            value = (
+                right
+                .split("#", 1)[0]
+                .strip()
+            )
+
+            if value == "":
+
+                raise ValueError(
+                    f"Setting '{setting}' is empty in:\n"
+                    f"{file}"
+                )
+
+            return value
+
+    raise ValueError(
+        f"Setting '{setting}' not found in:\n"
+        f"{file}"
+    )
+
+
 def make_default_path(suffix):
-    
-    # Get the root path
-    rootPath = Path( read_from_control(controlFolder/controlFile,'root_path') )
-    
-    # Get the domain folder
-    domainName = read_from_control(controlFolder/controlFile,'domain_name')
-    domainFolder = 'domain_' + domainName
-    
-    # Specify the forcing path
-    defaultPath = rootPath / domainFolder / suffix
-    
-    return defaultPath
-    
-    
-# --- Find where the EASYMORE restart file is
-# Intersected shapefile path. Name is set by EASYMORE as [prefix]_intersected_shapefile.shp
-intersect_path = read_from_control(controlFolder/controlFile,'intersect_forcing_path')
+    """
+    Construct a standard domain path.
+    """
 
-# Specify default path if needed
-if intersect_path == 'default':
-    intersect_path = make_default_path('shapefiles/catchment_intersection/with_forcing') # outputs a Path()
+    root_path = Path(
+        read_from_control(
+            CONTROL_FILE,
+            "root_path"
+        )
+    )
+
+    domain_name = read_from_control(
+        CONTROL_FILE,
+        "domain_name"
+    )
+
+    return (
+        root_path
+        / f"domain_{domain_name}"
+        / suffix
+    )
+
+
+# ============================================================
+# DOMAIN
+# ============================================================
+
+domain = read_from_control(
+    CONTROL_FILE,
+    "domain_name"
+)
+
+
+# ============================================================
+# TARGET HRU SHAPEFILE
+# ============================================================
+
+catchment_name = read_from_control(
+    CONTROL_FILE,
+    "catchment_shp_name"
+)
+
+target_id_field = read_from_control(
+    CONTROL_FILE,
+    "catchment_shp_hruid"
+)
+
+target_lat_field = read_from_control(
+    CONTROL_FILE,
+    "catchment_shp_lat"
+)
+
+target_lon_field = read_from_control(
+    CONTROL_FILE,
+    "catchment_shp_lon"
+)
+
+
+catchment_path = make_default_path(
+    "shapefiles/catchment"
+)
+
+
+catchment_file = (
+    catchment_path
+    / catchment_name
+)
+
+
+if not catchment_file.exists():
+
+    raise FileNotFoundError(
+        "Prepared CWARHM catchment shapefile "
+        "was not found:\n"
+        f"{catchment_file}\n\n"
+        "Run Stage 00 before forcing remapping."
+    )
+
+
+# ============================================================
+# VALIDATE TARGET HRUS
+# ============================================================
+
+target_gdf = gpd.read_file(
+    catchment_file,
+    engine="fiona"
+)
+
+
+if len(target_gdf) == 0:
+
+    raise RuntimeError(
+        "Prepared target catchment contains no features."
+    )
+
+
+if target_gdf.crs is None:
+
+    raise RuntimeError(
+        "Prepared target catchment has no CRS."
+    )
+
+
+target_epsg = (
+    target_gdf.crs.to_epsg()
+)
+
+
+if target_epsg != 4326:
+
+    raise RuntimeError(
+        "Prepared target catchment has unexpected CRS.\n\n"
+        "Expected: EPSG:4326\n"
+        f"Found   : {target_gdf.crs}"
+    )
+
+
+required_target_fields = [
+    target_id_field,
+    target_lat_field,
+    target_lon_field,
+]
+
+
+missing_target_fields = [
+    field
+    for field in required_target_fields
+    if field not in target_gdf.columns
+]
+
+
+if missing_target_fields:
+
+    raise RuntimeError(
+        "Prepared target catchment is missing field(s): "
+        + ", ".join(
+            missing_target_fields
+        )
+    )
+
+
+if target_gdf[
+    target_id_field
+].isna().any():
+
+    raise RuntimeError(
+        f"{target_id_field} contains missing values."
+    )
+
+
+if target_gdf[
+    target_id_field
+].duplicated().any():
+
+    raise RuntimeError(
+        f"{target_id_field} contains duplicate IDs."
+    )
+
+
+target_hru_ids = (
+    target_gdf[
+        target_id_field
+    ]
+    .astype(np.int64)
+    .to_numpy()
+)
+
+
+if not np.all(
+    np.isfinite(
+        target_gdf[
+            target_lat_field
+        ].astype(float)
+    )
+):
+
+    raise RuntimeError(
+        f"{target_lat_field} contains "
+        "non-finite values."
+    )
+
+
+if not np.all(
+    np.isfinite(
+        target_gdf[
+            target_lon_field
+        ].astype(float)
+    )
+):
+
+    raise RuntimeError(
+        f"{target_lon_field} contains "
+        "non-finite values."
+    )
+
+
+# ============================================================
+# ERA5 GRID SHAPEFILE
+# ============================================================
+
+forcing_shape_path = read_from_control(
+    CONTROL_FILE,
+    "forcing_shape_path"
+)
+
+
+if forcing_shape_path == "default":
+
+    forcing_shape_path = make_default_path(
+        "shapefiles/forcing"
+    )
+
 else:
-    intersect_path = Path(intersect_path) # make sure a user-specified path is a Path()
-    
-# Remapping filename
-domain = read_from_control(controlFolder/controlFile,'domain_name')
-remap_file = domain + '_remapping.csv'
+
+    forcing_shape_path = Path(
+        forcing_shape_path
+    )
 
 
-# --- Find the forcing files (merged ERA5 data)
-# Location of merged ERA5 files
-forcing_merged_path = read_from_control(controlFolder/controlFile,'forcing_merged_path')
-
-# Specify default path if needed
-if forcing_merged_path == 'default':
-    forcing_merged_path = make_default_path('forcing/2_merged_data') # outputs a Path()
-else:
-    forcing_merged_path = Path(forcing_merged_path) # make sure a user-specified path is a Path()
-    
-# Find files in folder
-forcing_files = [forcing_merged_path/file for file in os.listdir(forcing_merged_path) if os.path.isfile(forcing_merged_path/file) and file.endswith('.nc')]
-
-# Sort the files
-forcing_files.sort()
+forcing_shape_name = read_from_control(
+    CONTROL_FILE,
+    "forcing_era5_shape_name"
+)
 
 
-# --- Find where the area-weighted forcing needs to go
-# Location for SUMMA-ready files
-forcing_basin_path = read_from_control(controlFolder/controlFile,'forcing_basin_avg_path')
-
-# Specify default path if needed
-if forcing_basin_path == 'default':
-    forcing_basin_path = make_default_path('forcing/3_basin_averaged_data') # outputs a Path()
-else:
-    forcing_basin_path = Path(forcing_basin_path) # make sure a user-specified path is a Path()
-    
-# Make the folder if it doesn't exist
-forcing_basin_path.mkdir(parents=True, exist_ok=True)
+forcing_shape_file = (
+    forcing_shape_path
+    / forcing_shape_name
+)
 
 
-# --- EASYMORE
-# Initialize an EASYMORE object
-esmr = easymore.easymore()
+if not forcing_shape_file.exists():
 
-# Author name
-esmr.author_name = 'SUMMA public workflow scripts'
+    raise FileNotFoundError(
+        "ERA5 forcing-grid shapefile "
+        "not found:\n"
+        f"{forcing_shape_file}\n\n"
+        "Run 2_create_forcing_grids.py first."
+    )
 
-# Data license
-esmr.license = 'Copernicus data use license: https://cds.climate.copernicus.eu/api/v2/terms/static/licence-to-use-copernicus-products.pdf'
 
-# Case name, used in EASYMORE-generated file naes
-esmr.case_name = read_from_control(controlFolder/controlFile,'domain_name')
+# ============================================================
+# VALIDATE SOURCE GRID
+# ============================================================
 
-# ERA5 netcdf variable names
-esmr.var_names = ['airpres',
-                  'LWRadAtm',
-                  'SWRadAtm',
-                  'pptrate',
-                  'airtemp',
-                  'spechum',
-                  'windspd'] # variable names of forcing data - hardcoded because we prescribe them during ERA5 merging
-esmr.var_lat   = 'latitude'  # name of the latitude dimensions
-esmr.var_lon   = 'longitude' # name of the longitude dimension
-esmr.var_time  = 'time'      # name of the time dimension
+source_grid_gdf = gpd.read_file(
+    forcing_shape_file,
+    engine="fiona"
+)
 
-# Temporary folder where the EASYMORE-generated GIS files and remapping file will be saved
-esmr.temp_dir = '' # Force this to be empty
 
-# Output folder where the catchment-averaged forcing will be saved
-esmr.output_dir = str(forcing_basin_path) + '/' # Path() to string; ensure the trailing '/' EASYMORE wants
+if len(source_grid_gdf) == 0:
 
-# Netcdf settings
-esmr.remapped_dim_id = 'hru'     # name of the non-time dimension; prescribed by SUMMA
-esmr.remapped_var_id = 'hruId'   # name of the variable associated with the non-time dimension
-esmr.format_list     = ['f4']    # variable type to save forcing as. Single entry here will be used for all variables
-esmr.fill_value_list = ['-9999'] # fill value
+    raise RuntimeError(
+        "ERA5 grid shapefile contains no features."
+    )
 
-# Flag that we do not want the data stored in .csv in addition to .nc
-esmr.save_csv  = False
 
-# Flag that we currently have no remapping file
-esmr.remap_csv = str(intersect_path / remap_file)
+if source_grid_gdf.crs is None:
 
-# Enforce that we want our HRUs returned in the order we put them in
+    raise RuntimeError(
+        "ERA5 forcing-grid shapefile has no CRS."
+    )
+
+
+if source_grid_gdf.crs.to_epsg() != 4326:
+
+    raise RuntimeError(
+        "ERA5 forcing grid has unexpected CRS.\n\n"
+        "Expected: EPSG:4326\n"
+        f"Found   : {source_grid_gdf.crs}"
+    )
+
+
+source_lat_field = read_from_control(
+    CONTROL_FILE,
+    "forcing_shape_lat_name"
+)
+
+source_lon_field = read_from_control(
+    CONTROL_FILE,
+    "forcing_shape_lon_name"
+)
+
+
+required_source_fields = [
+    source_lat_field,
+    source_lon_field,
+]
+
+
+missing_source_fields = [
+    field
+    for field in required_source_fields
+    if field not in source_grid_gdf.columns
+]
+
+
+if missing_source_fields:
+
+    raise RuntimeError(
+        "ERA5 forcing grid is missing field(s): "
+        + ", ".join(
+            missing_source_fields
+        )
+    )
+
+
+# ============================================================
+# PREPARED ERA5 FORCING FILES
+# ============================================================
+
+forcing_path = make_default_path(
+    "forcing/1_raw_data/ERA5_prepared"
+)
+
+
+if not forcing_path.exists():
+
+    raise FileNotFoundError(
+        "Prepared ERA5 directory not found:\n"
+        f"{forcing_path}"
+    )
+
+
+forcing_files = sorted(
+    forcing_path.glob(
+        "ERA5_SUMMA_*.nc"
+    )
+)
+
+
+if not forcing_files:
+
+    raise FileNotFoundError(
+        "No prepared ERA5 files found in:\n"
+        f"{forcing_path}\n\n"
+        "Run 3_prepare_era5_forcing.py first."
+    )
+
+
+# Earliest available month is sufficient to generate
+# the reusable spatial remapping information.
+forcing_file = forcing_files[0]
+
+
+# ============================================================
+# VALIDATE TEMPLATE NETCDF
+# ============================================================
+
+required_variables = [
+    "airpres",
+    "LWRadAtm",
+    "SWRadAtm",
+    "spechum",
+    "windspd",
+]
+
+
+with xr.open_dataset(
+    forcing_file
+) as ds:
+
+    missing_variables = [
+        variable
+        for variable in required_variables
+        if variable not in ds.variables
+    ]
+
+
+    if missing_variables:
+
+        raise RuntimeError(
+            "Template ERA5 forcing is missing "
+            "required variable(s): "
+            + ", ".join(
+                missing_variables
+            )
+        )
+
+
+    required_coordinates = [
+        "time",
+        "latitude",
+        "longitude",
+    ]
+
+
+    missing_coordinates = [
+        coordinate
+        for coordinate in required_coordinates
+        if coordinate not in ds.variables
+        and coordinate not in ds.coords
+    ]
+
+
+    if missing_coordinates:
+
+        raise RuntimeError(
+            "Template ERA5 forcing is missing "
+            "coordinate(s): "
+            + ", ".join(
+                missing_coordinates
+            )
+        )
+
+
+    source_time_steps = (
+        ds.sizes.get(
+            "time",
+            0
+        )
+    )
+
+
+    source_lat_count = (
+        ds.sizes.get(
+            "latitude",
+            0
+        )
+    )
+
+
+    source_lon_count = (
+        ds.sizes.get(
+            "longitude",
+            0
+        )
+    )
+
+
+    if (
+        source_time_steps == 0
+        or source_lat_count == 0
+        or source_lon_count == 0
+    ):
+
+        raise RuntimeError(
+            "Template ERA5 forcing contains "
+            "an empty required dimension."
+        )
+
+
+# ============================================================
+# INTERSECTION / REMAPPING OUTPUT
+# ============================================================
+
+intersect_path = make_default_path(
+    "shapefiles/"
+    "catchment_intersection/"
+    "with_forcing/"
+    "ERA5"
+)
+
+
+intersect_path.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+
+# ============================================================
+# TEMPORARY EASYMORE DIRECTORY
+# ============================================================
+
+forcing_easymore_path = make_default_path(
+    "forcing/"
+    "3_temp_easymore/"
+    "ERA5"
+)
+
+
+if forcing_easymore_path.exists():
+
+    rmtree(
+        forcing_easymore_path
+    )
+
+
+forcing_easymore_path.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+
+# ============================================================
+# BASIN-AVERAGED OUTPUT DIRECTORY
+# ============================================================
+
+forcing_basin_path = make_default_path(
+    "forcing/"
+    "3_basin_averaged_data/"
+    "ERA5"
+)
+
+
+forcing_basin_path.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+
+# ============================================================
+# REPORT INPUTS
+# ============================================================
+
+print()
+print("=" * 70)
+print("CREATE ERA5 -> HRU EASYMORE REMAPPING")
+print("=" * 70)
+
+print()
+print(f"Domain       : {domain}")
+print(f"Control file : {CONTROL_FILE}")
+
+print()
+print(f"Target HRUs  : {catchment_file}")
+print(f"HRU count    : {len(target_gdf)}")
+print(f"First HRU ID : {target_hru_ids[0]}")
+print(f"Last HRU ID  : {target_hru_ids[-1]}")
+print(f"Target CRS   : {target_gdf.crs}")
+
+print()
+print(f"Source grid  : {forcing_shape_file}")
+print(f"Grid cells   : {len(source_grid_gdf)}")
+print(f"Source CRS   : {source_grid_gdf.crs}")
+
+print()
+print(f"Template NC  : {forcing_file}")
+print(f"Time steps   : {source_time_steps}")
+print(f"Latitude     : {source_lat_count}")
+print(f"Longitude    : {source_lon_count}")
+
+print()
+print(
+    "Variables    : "
+    + ", ".join(
+        required_variables
+    )
+)
+
+print()
+print(f"Temp folder  : {forcing_easymore_path}")
+print(f"Output folder: {forcing_basin_path}")
+print(f"Remap folder : {intersect_path}")
+
+
+# ============================================================
+# EASYMORE SETUP
+# ============================================================
+
+esmr = easymore.Easymore()
+
+
+esmr.author_name = (
+    "NWAM-SUMMA workflow"
+)
+
+
+esmr.license = (
+    "Copernicus ERA5 data"
+)
+
+
+esmr.case_name = (
+    f"{domain}_ERA5"
+)
+
+
+# ------------------------------------------------------------
+# SOURCE GRID SHAPEFILE
+# ------------------------------------------------------------
+
+esmr.source_shp = str(
+    forcing_shape_file
+)
+
+esmr.source_shp_lat = (
+    source_lat_field
+)
+
+esmr.source_shp_lon = (
+    source_lon_field
+)
+
+
+# ------------------------------------------------------------
+# TARGET HRU SHAPEFILE
+# ------------------------------------------------------------
+
+esmr.target_shp = str(
+    catchment_file
+)
+
+esmr.target_shp_ID = (
+    target_id_field
+)
+
+esmr.target_shp_lat = (
+    target_lat_field
+)
+
+esmr.target_shp_lon = (
+    target_lon_field
+)
+
+
+# ------------------------------------------------------------
+# SOURCE NETCDF
+# ------------------------------------------------------------
+
+esmr.source_nc = str(
+    forcing_file
+)
+
+
+esmr.var_names = [
+    "airpres",
+    "LWRadAtm",
+    "SWRadAtm",
+    "spechum",
+    "windspd",
+]
+
+
+esmr.var_lat = (
+    "latitude"
+)
+
+esmr.var_lon = (
+    "longitude"
+)
+
+esmr.var_time = (
+    "time"
+)
+
+
+# ------------------------------------------------------------
+# EASYMORE DIRECTORIES
+# ------------------------------------------------------------
+
+esmr.temp_dir = (
+    str(
+        forcing_easymore_path
+    )
+    + "/"
+)
+
+
+esmr.output_dir = (
+    str(
+        forcing_basin_path
+    )
+    + "/"
+)
+
+
+# ------------------------------------------------------------
+# SUMMA-COMPATIBLE OUTPUT
+# ------------------------------------------------------------
+
+esmr.remapped_dim_id = (
+    "hru"
+)
+
+esmr.remapped_var_id = (
+    "hruId"
+)
+
+
+esmr.format_list = [
+    "f4"
+]
+
+
+esmr.fill_value_list = [
+    "-9999"
+]
+
+
+esmr.save_csv = False
+esmr.remap_csv = ""
+
+# Preserve prepared catchment HRU ordering.
 esmr.sort_ID = False
 
-# Flag that we want to skip existing remap files
-esmr.overwrite_existing_remap = False
 
-# --- Run EASYMORE - this can be parallelized for speed ups
-# Loop over the remaining forcing files
-for file in forcing_files[1:]: # skip the first one, as we completed that in the previous script  
-    
-    # ERA5 forcing files to use
-    esmr.source_nc = str(file) # Path() to string
-    
-    # Note on centroid warnings: in this case we use a regular lat/lon grid to represent ERA5 forcing and ...
-    #     centroid estimates without reprojecting are therefore acceptable.
-    # Note on deprecation warnings: this is an EASYMORE issue that cannot be resolved here. Does not affect current use.
-    esmr.nc_remapper()
-    
-    
-# --- Code provenance
-# Generates a basic log file in the domain folder and copies the control file and itself there.
+# ============================================================
+# RUN EASYMORE
+# ============================================================
 
-# Set the log path and file name
-logPath = forcing_basin_path
-log_suffix = '_create_all_weighted_forcing_file_log.txt'
+print()
+print("-" * 70)
+print("RUN EASYMORE")
+print("-" * 70)
+print()
 
-# Create a log folder
-logFolder = '_workflow_log'
-Path( logPath / logFolder ).mkdir(parents=True, exist_ok=True)
 
-# Copy this script
-thisFile = '2_make_all_weighted_forcing_files.py'
-copyfile(thisFile, logPath / logFolder / thisFile);
+esmr.nc_remapper()
 
-# Get current date and time
+
+# ============================================================
+# FIND EASYMORE REMAPPING PRODUCTS
+# ============================================================
+
+temp_dir = Path(
+    esmr.temp_dir
+)
+
+
+if not temp_dir.exists():
+
+    raise RuntimeError(
+        "EASYMORE temporary directory disappeared "
+        "before remapping products could be collected:\n"
+        f"{temp_dir}"
+    )
+
+
+# EASYMORE versions can use slightly different names.
+# Preserve all matching remapping products.
+
+remap_nc_files = sorted(
+    temp_dir.glob(
+        f"{esmr.case_name}*remap*.nc"
+    )
+)
+
+
+remap_csv_files = sorted(
+    temp_dir.glob(
+        f"{esmr.case_name}*remap*.csv"
+    )
+)
+
+
+intersect_files = sorted(
+    temp_dir.glob(
+        f"{esmr.case_name}_intersected_shapefile.*"
+    )
+)
+
+
+# ============================================================
+# REQUIRE REUSABLE REMAPPING INFORMATION
+# ============================================================
+
+if (
+    not remap_nc_files
+    and not remap_csv_files
+):
+
+    print()
+    print("Temporary EASYMORE files:")
+
+    for path in sorted(
+        temp_dir.iterdir()
+    ):
+
+        print(
+            f"  {path.name}"
+        )
+
+
+    raise RuntimeError(
+        "EASYMORE completed but no reusable "
+        "remapping NetCDF or CSV was found."
+    )
+
+
+# ============================================================
+# COPY REMAPPING PRODUCTS
+# ============================================================
+
+print()
+print("-" * 70)
+print("SAVE REMAPPING PRODUCTS")
+print("-" * 70)
+
+
+saved_remap_files = []
+
+
+for source in (
+    remap_nc_files
+    + remap_csv_files
+):
+
+    destination = (
+        intersect_path
+        / source.name
+    )
+
+
+    copy2(
+        source,
+        destination
+    )
+
+
+    saved_remap_files.append(
+        destination
+    )
+
+
+    print(
+        f"Saved: {destination}"
+    )
+
+
+# ============================================================
+# COPY INTERSECTION SHAPEFILE
+# ============================================================
+
+saved_intersection_files = []
+
+
+for source in intersect_files:
+
+    destination = (
+        intersect_path
+        / source.name
+    )
+
+
+    copy2(
+        source,
+        destination
+    )
+
+
+    saved_intersection_files.append(
+        destination
+    )
+
+
+if saved_intersection_files:
+
+    print()
+    print(
+        "Saved intersected shapefile components:"
+    )
+
+    for path in saved_intersection_files:
+
+        print(
+            f"  {path.name}"
+        )
+
+
+# ============================================================
+# FIND ONE-MONTH REMAPPED OUTPUT
+# ============================================================
+
+remapped_nc_files = sorted(
+    forcing_basin_path.glob(
+        "*.nc"
+    ),
+    key=lambda path: path.stat().st_mtime
+)
+
+
+if not remapped_nc_files:
+
+    raise RuntimeError(
+        "EASYMORE did not create a basin-averaged "
+        "ERA5 NetCDF file in:\n"
+        f"{forcing_basin_path}"
+    )
+
+
+test_output = (
+    remapped_nc_files[-1]
+)
+
+
+# ============================================================
+# VERIFY REMAPPED NETCDF
+# ============================================================
+
+with xr.open_dataset(
+    test_output
+) as ds:
+
+    missing_variables = [
+        variable
+        for variable in required_variables
+        if variable not in ds.variables
+    ]
+
+
+    if missing_variables:
+
+        raise RuntimeError(
+            "Remapped ERA5 output is missing "
+            "required variable(s): "
+            + ", ".join(
+                missing_variables
+            )
+        )
+
+
+    if "hruId" not in ds.variables:
+
+        raise RuntimeError(
+            "Remapped ERA5 output does not "
+            "contain hruId."
+        )
+
+
+    saved_hru_ids = (
+        np.asarray(
+            ds[
+                "hruId"
+            ].values
+        )
+        .squeeze()
+        .astype(
+            np.int64
+        )
+    )
+
+
+    if saved_hru_ids.size != len(
+        target_hru_ids
+    ):
+
+        raise RuntimeError(
+            "Remapped ERA5 HRU count does "
+            "not match prepared catchment.\n"
+            f"Expected: {len(target_hru_ids)}\n"
+            f"Found   : {saved_hru_ids.size}"
+        )
+
+
+    if not np.array_equal(
+        saved_hru_ids,
+        target_hru_ids
+    ):
+
+        raise RuntimeError(
+            "Remapped ERA5 hruId ordering "
+            "does not match the prepared catchment."
+        )
+
+
+    output_time_steps = (
+        ds.sizes.get(
+            "time",
+            0
+        )
+    )
+
+
+    output_hru_count = (
+        saved_hru_ids.size
+    )
+
+
+    missing_counts = {}
+
+    for variable in required_variables:
+
+        missing_counts[
+            variable
+        ] = int(
+            ds[
+                variable
+            ]
+            .isnull()
+            .sum()
+        )
+
+
+# ============================================================
+# LOGGING
+# ============================================================
+
+log_folder = (
+    intersect_path
+    / "_workflow_log"
+)
+
+
+log_folder.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+
+this_file = Path(
+    __file__
+).name
+
+
+copy2(
+    Path(__file__).resolve(),
+    log_folder / this_file
+)
+
+
+copy2(
+    CONTROL_FILE,
+    log_folder / CONTROL_FILE.name
+)
+
+
 now = datetime.now()
 
-# Create a log file 
-logFile = now.strftime('%Y%m%d') + log_suffix
-with open( logPath / logFolder / logFile, 'w') as file:
-    
-    lines = ['Log generated by ' + thisFile + ' on ' + now.strftime('%Y/%m/%d %H:%M:%S') + '\n',
-             'Made all remaining weighted forcing files based on restart file from intersected shapefiles of catchment and ERA5.']
-    for txt in lines:
-        file.write(txt)  
+
+log_file = (
+    log_folder
+    / (
+        f"{now:%Y%m%d_%H%M%S}_"
+        "ERA5_remapping.txt"
+    )
+)
+
+
+with open(
+    log_file,
+    "w"
+) as file:
+
+    file.write(
+        f"Log generated by {this_file} "
+        f"on {now:%Y/%m/%d %H:%M:%S}\n"
+    )
+
+    file.write(
+        f"Domain: {domain}\n"
+    )
+
+    file.write(
+        f"Control file: {CONTROL_FILE}\n"
+    )
+
+    file.write(
+        f"Target catchment: {catchment_file}\n"
+    )
+
+    file.write(
+        f"Target HRUs: {len(target_hru_ids)}\n"
+    )
+
+    file.write(
+        f"Source grid: {forcing_shape_file}\n"
+    )
+
+    file.write(
+        f"Source grid cells: "
+        f"{len(source_grid_gdf)}\n"
+    )
+
+    file.write(
+        f"Template forcing: {forcing_file}\n"
+    )
+
+    file.write(
+        "Variables: airpres, LWRadAtm, SWRadAtm, "
+        "spechum, windspd\n"
+    )
+
+    file.write(
+        f"Test output: {test_output}\n"
+    )
+
+    file.write(
+        f"Output HRUs: {output_hru_count}\n"
+    )
+
+    file.write(
+        f"Output time steps: {output_time_steps}\n"
+    )
+
+    file.write(
+        "HRU ordering preserved: yes\n"
+    )
+
+    for variable in required_variables:
+
+        file.write(
+            f"Missing {variable}: "
+            f"{missing_counts[variable]}\n"
+        )
+
+    file.write(
+        f"Reusable remapping products: "
+        f"{len(saved_remap_files)}\n"
+    )
+
+    for path in saved_remap_files:
+
+        file.write(
+            f"Remapping file: {path}\n"
+        )
+
+    file.write(
+        "Shared control_active.txt used: no\n"
+    )
+
+
+# ============================================================
+# REMOVE TEMPORARY DIRECTORY
+# ============================================================
+
+try:
+
+    rmtree(
+        forcing_easymore_path
+    )
+
+except OSError as error:
+
+    print()
+    print(
+        "WARNING: Could not remove temporary "
+        "EASYMORE directory:"
+    )
+
+    print(
+        error
+    )
+
+
+# ============================================================
+# FINISH
+# ============================================================
+
+print()
+print("=" * 70)
+print("ERA5 EASYMORE REMAPPING COMPLETED")
+print("=" * 70)
+
+print(
+    f"Domain             : {domain}"
+)
+
+print(
+    f"Target HRUs        : {len(target_hru_ids)}"
+)
+
+print(
+    f"Source grid cells  : {len(source_grid_gdf)}"
+)
+
+print(
+    "Variables          : "
+    "airpres, LWRadAtm, SWRadAtm, "
+    "spechum, windspd"
+)
+
+print(
+    f"Template month     : {forcing_file.name}"
+)
+
+print(
+    f"Test output        : {test_output}"
+)
+
+print(
+    f"Output HRUs        : {output_hru_count}"
+)
+
+print(
+    f"Output time steps  : {output_time_steps}"
+)
+
+print(
+    "HRU order          : preserved"
+)
+
+print()
+print("Missing values:")
+
+for variable in required_variables:
+
+    print(
+        f"  {variable:<10}: "
+        f"{missing_counts[variable]}"
+    )
+
+print()
+print(
+    f"Remapping products : {len(saved_remap_files)}"
+)
+
+print(
+    f"Remap folder       : {intersect_path}"
+)
+
+print(
+    f"Workflow log       : {log_file}"
+)
+
+print()
+print(
+    "No control_active.txt was created or modified."
+)

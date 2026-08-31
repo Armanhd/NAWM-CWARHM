@@ -2,25 +2,38 @@
 # coding: utf-8
 
 """
-CWARHM workflow: make folder structure
+CWARHM / NWAM workflow: make folder structure
+
+MULTIBASIN VERSION
 
 This script:
 
 1. Reads a domain-specific control file supplied as a command-line argument;
-2. Copies it to 0_control_files/control_active.txt;
+2. Uses that control file directly -- no shared control_active.txt is created;
 3. Creates the domain folder structure;
 4. Stores copies of the control file and this script in the workflow log.
 
 Usage:
 
 python make_folder_structure.py \
-../0_control_files/control_DOMAIN.txt
+../0_control_files/control_pfaf_713.txt
+
+This design allows multiple domains to be prepared simultaneously because
+each process uses its own control file.
 """
 
 import sys
 from pathlib import Path
 from shutil import copyfile
 from datetime import datetime
+
+
+# ============================================================
+# SCRIPT / PROJECT LOCATION
+# ============================================================
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+CWARHM_ROOT = SCRIPT_DIR.parent
 
 
 # ============================================================
@@ -35,39 +48,27 @@ if len(sys.argv) != 2:
     )
 
 
-source_control = Path(sys.argv[1]).resolve()
+control_file = Path(sys.argv[1]).resolve()
 
-if not source_control.exists():
+if not control_file.exists():
     raise FileNotFoundError(
-        f"Control file not found:\n{source_control}"
+        f"Control file not found:\n{control_file}"
+    )
+
+if not control_file.is_file():
+    raise RuntimeError(
+        f"Control path is not a file:\n{control_file}"
     )
 
 
-# ============================================================
-# CONTROL-FILE LOCATIONS
-# ============================================================
+print()
+print("=" * 70)
+print("CREATE CWARHM DOMAIN FOLDER STRUCTURE")
+print("=" * 70)
 
-controlFolder = Path("../0_control_files").resolve()
-
-controlFile = "control_active.txt"
-
-active_control = controlFolder / controlFile
-
-
-# ============================================================
-# COPY DOMAIN CONTROL TO control_active.txt
-# ============================================================
-
-copyfile(
-    source_control,
-    active_control
-)
-
-print("Source control file:")
-print(source_control)
-
-print("\nActive control file:")
-print(active_control)
+print()
+print("Control file:")
+print(control_file)
 
 
 # ============================================================
@@ -75,20 +76,33 @@ print(active_control)
 # ============================================================
 
 def read_from_control(file, setting):
+    """
+    Read one exact setting from a CWARHM control file.
+    """
 
     with open(file) as contents:
 
         for line in contents:
 
+            stripped = line.strip()
+
             if (
-                line.startswith(setting)
-                and not line.startswith("#")
+                not stripped
+                or stripped.startswith("#")
+                or "|" not in stripped
             ):
+                continue
 
-                value = line.split("|", 1)[1]
-                value = value.split("#", 1)[0]
+            left, right = stripped.split("|", 1)
 
-                return value.strip()
+            if left.strip() != setting:
+                continue
+
+            return (
+                right
+                .split("#", 1)[0]
+                .strip()
+            )
 
     raise ValueError(
         f"Setting '{setting}' not found in:\n{file}"
@@ -99,34 +113,44 @@ def read_from_control(file, setting):
 # DOMAIN SETTINGS
 # ============================================================
 
-rootPath = Path(
+root_path = Path(
     read_from_control(
-        active_control,
+        control_file,
         "root_path"
     )
 )
 
-domainName = read_from_control(
-    active_control,
+domain_name = read_from_control(
+    control_file,
     "domain_name"
 )
 
-domainFolder = (
-    rootPath /
-    f"domain_{domainName}"
+if not domain_name:
+    raise ValueError(
+        "domain_name is empty in control file."
+    )
+
+
+domain_folder = (
+    root_path
+    / f"domain_{domain_name}"
 )
 
-domainFolder.mkdir(
+
+print()
+print(f"Domain      : {domain_name}")
+print(f"Root path   : {root_path}")
+print(f"Domain path : {domain_folder}")
+
+
+# ============================================================
+# CREATE DOMAIN ROOT
+# ============================================================
+
+domain_folder.mkdir(
     parents=True,
     exist_ok=True
 )
-
-
-print("\nDomain:")
-print(domainName)
-
-print("\nDomain folder:")
-print(domainFolder)
 
 
 # ============================================================
@@ -183,8 +207,8 @@ folders = [
 for folder in folders:
 
     (
-        domainFolder /
-        folder
+        domain_folder
+        / folder
     ).mkdir(
         parents=True,
         exist_ok=True
@@ -195,32 +219,41 @@ for folder in folders:
 # WORKFLOW LOG
 # ============================================================
 
-logFolder = (
-    domainFolder /
-    "_workflow_log"
+log_folder = (
+    domain_folder
+    / "_workflow_log"
 )
 
-logFolder.mkdir(
+log_folder.mkdir(
     parents=True,
     exist_ok=True
 )
 
 
-# Copy the original domain-specific control file.
+# ------------------------------------------------------------
+# Store domain-specific control file
+# ------------------------------------------------------------
+
+logged_control = (
+    log_folder
+    / control_file.name
+)
 
 copyfile(
-    source_control,
-    logFolder / source_control.name
+    control_file,
+    logged_control
 )
 
 
-# Copy this script.
+# ------------------------------------------------------------
+# Store script
+# ------------------------------------------------------------
 
-thisFile = Path(__file__).name
+this_file = Path(__file__).name
 
 copyfile(
     Path(__file__).resolve(),
-    logFolder / thisFile
+    log_folder / this_file
 )
 
 
@@ -230,36 +263,53 @@ copyfile(
 
 now = datetime.now()
 
-logFile = (
-    logFolder /
-    f"{now.strftime('%Y%m%d')}_folder_structure_log.txt"
+log_file = (
+    log_folder
+    / (
+        f"{now:%Y%m%d_%H%M%S}_"
+        "folder_structure_log.txt"
+    )
 )
 
 
-with open(logFile, "w") as file:
+with open(log_file, "w") as file:
 
     file.write(
-        f"Log generated by {thisFile} on "
-        f"{now.strftime('%Y/%m/%d %H:%M:%S')}\n"
+        f"Log generated by {this_file} on "
+        f"{now:%Y/%m/%d %H:%M:%S}\n"
     )
 
     file.write(
-        f"Source control file: "
-        f"{source_control}\n"
+        f"Control file: {control_file}\n"
     )
 
     file.write(
-        f"Active control file: "
-        f"{active_control}\n"
+        f"Domain name: {domain_name}\n"
     )
 
     file.write(
-        f"Domain folder: "
-        f"{domainFolder}\n"
+        f"Domain folder: {domain_folder}\n"
+    )
+
+    file.write(
+        "Shared control_active.txt used: no\n"
     )
 
 
-print("\nFolder structure created successfully.")
+# ============================================================
+# FINISH
+# ============================================================
 
-print("\nWorkflow log:")
-print(logFile)
+print()
+print("=" * 70)
+print("FOLDER STRUCTURE CREATED SUCCESSFULLY")
+print("=" * 70)
+
+print()
+print(f"Domain       : {domain_name}")
+print(f"Domain folder: {domain_folder}")
+print(f"Control file : {control_file}")
+print(f"Workflow log : {log_file}")
+
+print()
+print("No control_active.txt was created or modified.")
