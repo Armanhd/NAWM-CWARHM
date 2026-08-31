@@ -137,6 +137,22 @@ Before beginning a new batch, confirm that:
 - the `nwam` environment is available.
 
 ---
+# Pre-Step Clone the NAWM-CWARHM repository 
+Required inputs: GitHub access and ARC SSH access.
+```bash
+git clone git@github.com:<USER>/NAWM-CWARHM.git
+
+cd NAWM-CWARHM
+```
+Verification:
+```bash
+git branch --show-current
+```
+Expected:
+```bash
+NAWM-multibasin
+```
+
 
 # STEP 0 - Activate the ARC/Conda environment
 
