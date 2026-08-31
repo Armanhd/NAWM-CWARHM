@@ -24,7 +24,7 @@ The purpose of NAWM-CWARHM is therefore **not simply to increase the spatial sca
 Major additions include:
 
 - automated generation of basin-specific control files;
-- support for different domain inventories, including MERIT/Pfaf and CENTURY basins;
+- support for different domain inventories, including MERIT/Pfaf and CAMELS-SPAT basins;
 - automated preparation of CWARHM-compatible domain shapefiles;
 - reusable basin-level and month-level task inventories;
 - shared continental geospatial datasets;
