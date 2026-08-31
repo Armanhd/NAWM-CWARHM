@@ -1,136 +1,620 @@
-# CWARHM for the North American Water Model (NAWM)
+# NAWM-CWARHM
 
-## Background and origin of the workflow
+**NAWM-CWARHM** is a multi-basin, high-performance-computing extension of the **Community Workflows to Advance Reproducibility in Hydrologic Modeling (CWARHM)** developed by Knoben et al. (2022).
 
-This repository is a modified version of the **Community Workflows to Advance Reproducibility in Hydrologic Modeling (CWARHM)** workflow developed by Knoben et al. (2022). The present repository was forked from the original [`CH-Earth/CWARHM`](https://github.com/CH-Earth/CWARHM) repository and retains the overall philosophy and structure of CWARHM while extending the workflow for application within the **North American Water Model (NAWM)** project.
+The workflow provides an automated framework for generating and executing **SUMMA–mizuRoute** model configurations for large numbers of river basins across North America as part of the **North American Water Model (NAWM)** project.
 
-CWARHM was developed as a reproducible model-configuration workflow that separates **model-agnostic data preparation** from **model-specific configuration**. The original workflow couples the **Structure for Unifying Multiple Modeling Alternatives (SUMMA)** hydrological model (Clark et al., 2015a,b) with the **mizuRoute** river-routing model (Mizukami et al., 2016).
+NAWM-CWARHM retains the fundamental CWARHM philosophy of separating **model-agnostic data preparation** from **model-specific configuration**, while adding the domain-generation, forcing-processing, batch-management, quality-control, and HPC infrastructure required for repeated multi-basin model production.
 
-The original CWARHM workflow was designed to be general and scalable. Knoben et al. (2022) demonstrated the workflow for local, continental, and global applications, including a North American configuration containing more than 500,000 sub-basins. The objective of the NAWM modifications is therefore not simply to increase the spatial scale of CWARHM. Instead, the revisions provide the additional **domain-generation, data-management, forcing-processing, and high-performance-computing infrastructure** required to repeatedly configure and execute SUMMA–mizuRoute simulations for many MERIT-Basins domains across North America.
+The repository is based on the original [`CH-Earth/CWARHM`](https://github.com/CH-Earth/CWARHM) workflow.
 
-The original CWARHM workflow and its scientific rationale are described in:
+---
+
+## Background
+
+CWARHM was developed as a reproducible framework for configuring large-domain hydrological models. The original implementation couples:
+
+- **SUMMA** — Structure for Unifying Multiple Modeling Alternatives (Clark et al., 2015a,b)
+- **mizuRoute** — river-network routing model (Mizukami et al., 2016)
+
+Knoben et al. (2022) demonstrated that CWARHM can be applied from local catchments to continental and global domains, including a North American configuration containing more than 500,000 sub-basins.
+
+The purpose of NAWM-CWARHM is therefore **not simply to increase the spatial scale of CWARHM**. Instead, it operationalizes the CWARHM architecture for repeated model production across many North American river basins.
+
+Major additions include:
+
+- automated generation of basin-specific control files;
+- support for different domain inventories, including MERIT/Pfaf and CENTURY basins;
+- automated preparation of CWARHM-compatible domain shapefiles;
+- reusable basin-level and month-level task inventories;
+- shared continental geospatial datasets;
+- combined ERA5 and EM-Earth meteorological forcing;
+- reusable EASYMORE spatial-remapping weights;
+- large Slurm-array forcing workflows;
+- automated DEM, soil, and land-cover preprocessing;
+- automated HRU parameter extraction;
+- multi-basin SUMMA and mizuRoute input generation;
+- support for domains containing a single HRU/river segment as well as large multi-HRU domains;
+- explicit handling and validation of MERIT river-network topology;
+- systematic verification between workflow stages;
+- coordinated HPC execution of large collections of basins.
+
+---
+
+# Workflow architecture
+
+NAWM-CWARHM organizes processing into a sequence of reproducible stages:
+
+```text
+Domain inventory
+      ↓
+Generate basin control files
+      ↓
+Generate basin + monthly task inventories
+      ↓
+Prepare domain shapefiles and forcing grids
+      ↓
+Prepare ERA5 + EM-Earth monthly forcing
+      ↓
+Create spatial-remapping weights
+      ↓
+Remap forcing to HRUs
+      ↓
+Assemble final SUMMA forcing
+      ↓
+Prepare DEM + soil + land-cover data
+      ↓
+Map geospatial parameters to HRUs
+      ↓
+Generate SUMMA + mizuRoute inputs
+      ↓
+Verify model configuration
+      ↓
+Run SUMMA
+      ↓
+Merge distributed SUMMA outputs
+      ↓
+Run mizuRoute
+      ↓
+Final simulation verification
+```
+
+The important architectural change is that processing is **task-driven rather than basin-script-driven**. The same workflow scripts can therefore operate on different collections of basins without rewriting the underlying processing code.
+
+---
+
+# Multi-basin processing
+
+A major extension of NAWM-CWARHM is the introduction of reusable **basin and month task files**.
+
+For a selected collection of domains, the workflow generates:
+
+```text
+multibasin_preprocessing_<BATCH>.txt
+month_tasks_<BATCH>.txt
+```
+
+The basin task file defines one model domain per task, while the monthly task file defines one **domain-month combination per task**.
+
+For example, five basins with forcing from 1950–2019 contain:
+
+```text
+5 basins × 840 months = 4200 monthly tasks
+```
+
+These task inventories can then be supplied directly to Slurm-array runners.
+
+A reusable `set_batch.sh` configuration exposes:
+
+```bash
+BASIN_TASK
+MONTH_TASK
+NBASIN
+NMONTH
+```
+
+so subsequent workflow stages operate on the currently selected batch without hard-coding basin names.
+
+This design allows the same processing infrastructure to be used for a small test collection or a much larger production set.
+
+---
+
+# Domain inventories and control-file generation
+
+The original CWARHM workflow assumes that the user already has an appropriate spatial discretization and associated control file.
+
+NAWM-CWARHM introduces a higher-level domain inventory from which basin-specific CWARHM controls can be generated automatically.
+
+Currently supported examples include:
+
+```text
+MERIT_Pfaf3_control_file_inputs.csv
+CENTURY_control_file_inputs.csv
+```
+
+These inventories contain information such as:
+
+```text
+domain_name
+source_directory
+catchment_shp_file
+river_network_shp_file
+river_basin_shp_file
+```
+
+The workflow uses these inventories together with a validated CWARHM control template to create:
+
+```text
+control_<DOMAIN>.txt
+```
+
+for each selected basin.
+
+Domain-specific information, including the meteorological forcing extent, is generated automatically from the basin geometry.
+
+This separates:
+
+**domain inventory → domain configuration → model processing**
+
+and substantially reduces manual control-file editing.
+
+---
+
+# Domain preparation
+
+NAWM-CWARHM adds a new:
+
+```text
+00_prepare_domain_shapefiles/
+```
+
+stage before the traditional CWARHM processing sequence.
+
+This stage creates CWARHM-compatible catchment and river-network datasets and establishes the attributes required by SUMMA and mizuRoute.
+
+Important attributes include:
+
+```text
+COMID
+GRU_ID
+HRU_ID
+HRU area
+NextDownID
+river length
+river slope
+HRU-to-segment relationship
+```
+
+The source hydrography is preserved; prepared model-domain files are written to the individual NAWM domain directories.
+
+This makes spatial-domain preparation part of the reproducible workflow rather than an external GIS prerequisite.
+
+---
+
+# Meteorological forcing
+
+NAWM-CWARHM uses meteorological information from both **ERA5** and **EM-Earth**.
+
+The forcing workflow is divided into three computational stages.
+
+### 1. Source preparation
+
+Raw ERA5 and EM-Earth archives are converted into standardized monthly files for each domain.
+
+### 2. Spatial remapping
+
+Reusable EASYMORE remapping weights are generated once for each basin and forcing product.
+
+Monthly meteorological files are subsequently remapped to the model HRUs using Slurm arrays.
+
+### 3. SUMMA forcing assembly
+
+The remapped variables are combined into monthly SUMMA forcing files:
+
+```text
+NWAM_SUMMA_forcing_YYYYMM.nc
+```
+
+For the current 1950–2019 configuration this produces:
+
+```text
+840 monthly forcing files per basin
+```
+
+with hourly meteorological data.
+
+The final forcing combines variables supplied by the two meteorological products into a common SUMMA-compatible dataset.
+
+This separation of source preparation, spatial remapping, and final assembly makes large forcing workflows restartable and allows failed domain-month tasks to be rerun independently.
+
+---
+
+# Shared continental datasets
+
+Processing many basins independently can create large amounts of duplicated source data.
+
+NAWM-CWARHM therefore supports centrally maintained datasets on HPC systems.
+
+Examples include:
+
+- MERIT-Hydro elevation data;
+- soil-class rasters;
+- MODIS MCD12Q1 land cover;
+- ERA5 meteorological archives;
+- EM-Earth meteorological archives.
+
+For MERIT-Hydro, existing elevation tiles can be linked from a shared archive rather than copied separately into every model domain.
+
+This approach reduces:
+
+- storage requirements;
+- repeated downloads;
+- duplicated preprocessing;
+- unnecessary filesystem operations.
+
+The specific shared-data paths used on the University of Calgary ARC system are deployment-specific and are documented in the workflow manual rather than assumed to be portable to other systems.
+
+---
+
+# Geospatial parameter preparation
+
+For every basin, NAWM-CWARHM prepares three primary geospatial parameter products:
+
+```text
+parameters/dem/5_elevation/elevation.tif
+
+parameters/soilclass/2_soil_classes_domain/soil_classes.tif
+
+parameters/landclass/7_mode_land_class/land_classes.tif
+```
+
+These are derived from:
+
+- **MERIT-Hydro** elevation;
+- soil-class information;
+- **MODIS MCD12Q1** land cover.
+
+The domain rasters are subsequently intersected with the HRUs to derive:
+
+- mean HRU elevation;
+- HRU soil-class distributions;
+- HRU land-cover distributions.
+
+These products are written to standardized HRU-intersection shapefiles and subsequently used to populate SUMMA attributes.
+
+---
+
+# SUMMA configuration
+
+NAWM-CWARHM automatically generates the model-specific files required by SUMMA.
+
+Major outputs include:
+
+```text
+fileManager.txt
+forcingFileList.txt
+coldState.nc
+trialParams.nc
+attributes.nc
+modelDecisions.txt
+outputControl.txt
+localParamInfo.txt
+basinParamInfo.txt
+```
+
+together with the required parameter tables.
+
+The workflow populates `attributes.nc` using the geospatial information generated during the preceding stages, including:
+
+- HRU and GRU identifiers;
+- HRU area;
+- latitude and longitude;
+- elevation;
+- soil type;
+- vegetation type;
+- HRU connectivity.
+
+The revised scripts maintain a consistent HRU ordering between forcing, attributes, initial conditions, and parameter files.
+
+They are also designed to operate correctly for both large domains and edge cases such as a domain containing only one HRU.
+
+---
+
+# mizuRoute configuration
+
+NAWM-CWARHM generates mizuRoute topology directly from the prepared river-network information.
+
+The principal routing products are:
+
+```text
+topology.nc
+mizuroute.control
+param.nml.default
+```
+
+The topology contains information including:
+
+```text
+segId
+downSegId
+slope
+length
+hruId
+hruToSegId
+area
+```
+
+The revised network workflow handles MERIT-style:
+
+```text
+COMID
+NextDownID
+```
+
+relationships and explicitly checks whether downstream segment identifiers remain inside the model domain.
+
+Downstream links leaving the selected routing domain are represented as routing outlets rather than invalid internal links.
+
+The workflow also verifies that every HRU-to-segment relationship points to a valid routing segment.
+
+For configurations in which SUMMA HRUs already correspond directly to routing units:
+
+```text
+river_basin_needs_remap | no
+```
+
+and an additional SUMMA-to-mizuRoute remapping file is unnecessary.
+
+---
+
+# HPC and Slurm-array processing
+
+NAWM-CWARHM is designed for execution on HPC systems and has been developed and tested using the University of Calgary **ARC** cluster.
+
+Parallelization occurs at multiple levels.
+
+### Basin-level arrays
+
+Operations that need to run once per basin use one Slurm task per model domain.
+
+Examples include:
+
+- domain preparation;
+- forcing-remapping-weight generation;
+- DEM/soil/MODIS preparation;
+- HRU parameter extraction;
+- SUMMA/mizuRoute input generation.
+
+### Domain-month arrays
+
+Large meteorological workflows use one task per domain-month combination.
+
+Examples include:
+
+- ERA5 preparation;
+- EM-Earth preparation;
+- ERA5 HRU remapping;
+- EM-Earth HRU remapping;
+- final forcing assembly.
+
+For thousands of tasks, arrays can be submitted in chunks and concurrency can be controlled with standard Slurm array throttling.
+
+This structure makes individual failures recoverable without repeating successful work for other basins or months.
+
+---
+
+# Verification and quality control
+
+Verification is treated as an explicit part of the workflow rather than an optional post-processing step.
+
+Checks are performed between major stages to confirm that expected products exist and contain internally consistent information.
+
+Examples include:
+
+### Forcing
+
+- expected monthly file count;
+- correct first and last month;
+- hourly timestep;
+- required meteorological variables;
+- correct HRU count.
+
+### SUMMA
+
+- required settings files exist;
+- `attributes.nc`, `coldState.nc`, and `trialParams.nc` contain the expected HRUs;
+- HRU ordering agrees with forcing;
+- soil type is populated;
+- vegetation type is populated;
+- elevation is finite and populated.
+
+### mizuRoute
+
+- expected routing segments exist;
+- downstream connectivity is valid;
+- outlets are represented correctly;
+- HRU-to-segment mappings are valid;
+- slope and length fields are populated.
+
+This is particularly important for automated processing because successful completion of a Slurm task alone does not guarantee that the resulting hydrological model configuration is internally consistent.
+
+---
+
+# Model execution
+
+The NAWM execution architecture coordinates SUMMA and mizuRoute rather than treating them as independent model runs.
+
+The model sequence is:
+
+```text
+SUMMA array execution
+        ↓
+merge SUMMA outputs
+        ↓
+mizuRoute
+        ↓
+verification
+```
+
+The Stage 6 workflow includes dedicated preparation and submission utilities and a separate SUMMA-output merge stage before routing.
+
+This ensures that mizuRoute receives a complete runoff dataset even when SUMMA calculations have been distributed across multiple compute tasks.
+
+---
+
+# Major differences from original CWARHM
+
+| Component | Original CWARHM | NAWM-CWARHM |
+|---|---|---|
+| Scientific architecture | Model-agnostic preparation followed by SUMMA/mizuRoute configuration | Retained |
+| Spatial scale | Local to global | Multi-basin North American production |
+| Spatial discretization | Supplied externally | Integrated domain-preparation stage |
+| Domain configuration | Individual application controls | Inventory-driven automatic control generation |
+| Domain inventories | Not central to workflow | MERIT/Pfaf, CENTURY, and extensible inventories |
+| Batch definition | Application-oriented | Reusable basin and month task files |
+| Meteorological forcing | Primarily ERA5 | Combined ERA5 + EM-Earth workflow |
+| Forcing processing | Application processing | Domain-month Slurm arrays |
+| Spatial forcing remapping | CWARHM remapping | Reusable EASYMORE weights + parallel monthly remapping |
+| Forcing assembly | Original CWARHM structure | Dedicated monthly SUMMA assembly stage |
+| DEM | MERIT-Hydro processing | Shared archive reuse + automated basin processing |
+| Soil/land cover | CWARHM processing | Automated multi-basin raster + HRU extraction |
+| SUMMA inputs | Generated per application | Automated multi-basin generation |
+| HRU identifiers | Application dependent | Standardized and explicitly validated |
+| Single-HRU domains | Not a primary production target | Explicitly supported |
+| mizuRoute topology | User-supplied network basis | Automated MERIT-style topology construction and validation |
+| HPC processing | Supports scalable execution | Basin/month task architecture + Slurm arrays |
+| SUMMA outputs | Standard execution | Distributed execution + dedicated merge stage |
+| Verification | Workflow-dependent | Explicit checks throughout processing |
+| Primary objective | General reproducible model configuration | Automated and repeatable North American model production |
+
+---
+
+# Repository organization
+
+The main workflow directories are:
+
+```text
+00_prepare_domain_shapefiles/   Domain/control/task preparation
+0_control_files/                Domain controls and task inventories
+0_example/                      Example/reference configuration
+0_tools/                        Shared workflow utilities
+1_folder_prep/                  Domain directory creation
+2_install/                      Environment and model installation
+3a_forcing/                     Meteorological source preparation
+3b_parameters/                  DEM, soil and land-cover preparation
+4a_sort_shape/                  Spatial preprocessing
+4b_remapping/                   HRU parameter and forcing remapping
+5_model_input/                  SUMMA and mizuRoute input generation
+6_model_runs/                   SUMMA–mizuRoute execution
+7_visualization/                Visualization and analysis
+```
+
+The detailed contents and exact execution sequence are described in the **NAWM-CWARHM workflow manual** included separately in this repository.
+
+---
+
+# Typical model-domain structure
+
+Processed domains are maintained independently:
+
+```text
+domain_<DOMAIN>/
+├── forcing/
+│   ├── 1_raw_data/
+│   ├── 3_basin_averaged_data/
+│   └── 4_SUMMA_input/
+├── parameters/
+│   ├── dem/
+│   ├── soilclass/
+│   └── landclass/
+├── shapefiles/
+│   ├── catchment/
+│   ├── river_network/
+│   └── catchment_intersection/
+├── settings/
+│   ├── SUMMA/
+│   └── mizuRoute/
+└── simulations/
+```
+
+This standardized organization allows the same processing and execution scripts to operate across many model domains.
+
+---
+
+# Workflow manual
+
+The README provides the **conceptual overview and architecture** of NAWM-CWARHM.
+
+Detailed operational instructions should be maintained separately in the repository as the workflow manual.
+
+The manual contains:
+
+1. environment activation;
+2. domain selection and control-file generation;
+3. basin/month task generation;
+4. reusable batch configuration;
+5. domain and forcing-grid preparation;
+6. ERA5 and EM-Earth source preparation;
+7. forcing-remapping-weight generation;
+8. monthly forcing remapping;
+9. final SUMMA forcing assembly;
+10. DEM, soil, and MODIS preparation;
+11. HRU parameter extraction;
+12. SUMMA and mizuRoute input generation;
+13. final model-input verification;
+14. Slurm submission and monitoring examples;
+15. output checks and acceptance criteria.
+
+Machine-specific ARC paths, example basin collections, test job IDs, Slurm limits, and detailed command sequences belong in the manual rather than in this README.
+
+---
+
+# Portability
+
+NAWM-CWARHM has been developed for the NAWM computing environment on ARC, but the scientific workflow is not inherently restricted to that system.
+
+To deploy elsewhere, users will generally need to modify:
+
+- source-data paths;
+- output-root paths;
+- environment/module initialization;
+- Slurm account and resource settings;
+- locations of SUMMA and mizuRoute executables;
+- shared dataset configuration.
+
+The distinction between **workflow logic** and **deployment-specific paths/settings** is intentionally maintained to facilitate future deployment on other HPC systems.
+
+---
+
+# Relationship to CWARHM
+
+NAWM-CWARHM should be viewed as an extension of CWARHM rather than a replacement for it.
+
+**Original CWARHM**
+
+A general, modular, reproducible framework for configuring hydrological models across local to global domains. It establishes the separation between model-agnostic data preparation and model-specific SUMMA/mizuRoute configuration.
+
+**NAWM-CWARHM**
+
+Retains this scientific and organizational framework while adding the infrastructure required for repeated North American model production: domain inventories, automatic control generation, MERIT-based hydrography preparation, combined ERA5/EM-Earth forcing, shared datasets, reusable remapping, multi-basin task management, Slurm-array processing, topology validation, automated model-input generation, coordinated SUMMA–mizuRoute execution, and systematic verification.
+
+The principal contribution of NAWM-CWARHM is therefore **automation, standardization, computational scalability, robustness, and repeatability across large collections of river basins**.
+
+---
+
+# Citation and acknowledgement
+
+Users of NAWM-CWARHM should cite the original CWARHM publication:
 
 > Knoben, W. J. M., Clark, M. P., Bales, J., Bennett, A., Gharari, S., Marsh, C. B., Nijssen, B., Pietroniro, A., Spiteri, R. J., Tang, G., Tarboton, D. G., & Wood, A. W. (2022). Community Workflows to Advance Reproducibility in Hydrologic Modeling: Separating model-agnostic and model-specific configuration steps in applications of large-domain hydrologic models. *Water Resources Research*, **58**, e2021WR031753. https://doi.org/10.1029/2021WR031753
 
-The original CWARHM repository should be consulted for the conceptual basis of the workflow, detailed descriptions of its original components and test cases.
+The original CWARHM repository is available at:
+
+[`CH-Earth/CWARHM`](https://github.com/CH-Earth/CWARHM)
 
 ---
 
-# NAWM extensions to CWARHM
-
-The NAWM version retains the fundamental CWARHM architecture and continues to use **SUMMA for hydrological simulation and mizuRoute for river-network routing**. The main modifications concern how model domains, geospatial parameters, meteorological forcing, model inputs, and simulations are prepared and executed.
-
-The changes are designed to support repeated model configuration across MERIT-Basins domains using shared datasets and high-performance computing resources on the University of Calgary ARC cluster or other HPCs.
-
-## Summary of major modifications
-
-| CWARHM step | Original CWARHM | Revised NAWM-CWARHM | Main benefit |
-|---|---|---|---|
-| **0. Domain definition** | Users provide pre-existing catchment/HRU and river-network shapefiles. Spatial discretization is outside the original workflow scope. | New `00_prepare_domain_shapefiles/` stage constructs CWARHM-compatible catchment and river-network shapefiles from MERIT-Basins, creates required attributes, preserves network topology, and reports control-file values. | Enables systematic generation of many MERIT/Pfaf modelling domains with substantially less manual GIS preparation. |
-| **1. Folder preparation** | Creates the CWARHM data-directory structure for a specified modelling domain. | `make_folder_structure.py` revised for the standardized NAWM domain structure and repeated processing of MERIT domains. | Provides consistent organization across large numbers of model domains. |
-| **2. Software/environment** | Uses the original `environment.yml` and associated SUMMA/mizuRoute installation procedures. | Dedicated `environment_nwam.yml`, `create_nwam_env.sh`, and `update_nwam_env.sh`; SUMMA and mizuRoute clone/compile scripts revised for ARC. | Provides a reproducible HPC environment and reduces dependency and compiler inconsistencies. |
-| **3. Meteorological forcing** | ERA5 is the primary meteorological forcing dataset. | Explicit ERA5 and **EM-Earth** pathways are supported, with EM-Earth used as the primary forcing source for NAWM applications. | Supports long-term EM-Earth simulations while retaining ERA5 as an alternative forcing product. |
-| **3. Forcing preparation** | Downloads and prepares forcing for the selected modelling application. | Added `run_prepare_forcing.sh` and separate ERA5/EM-Earth processing pathways designed around shared forcing archives on ARC. | Reduces repeated data preparation and supports repeated processing of many domains. |
-| **3b. MERIT Hydro DEM** | MERIT-Hydro elevation tiles are downloaded and processed as part of the workflow. | Added `0_link_existing_tiles.py` so existing MERIT-Hydro tiles in the shared ARC data archive can be linked and reused; VRT, subsetting, and conversion scripts were revised accordingly. | Avoids duplicate copies of large datasets and reduces both storage requirements and preprocessing time. |
-| **3b. MODIS land cover** | Standard CWARHM MODIS VRT, reprojection, subsetting, and land-class processing. | MODIS processing scripts revised for the ARC/NAWM directory structure and repeated processing of large MERIT domains. | Improves robustness and repeatability of land-cover parameter extraction. |
-| **4. HRU parameter extraction** | Elevation, soil, and land-cover properties are mapped to user-provided HRUs. | Elevation, soil-class, and land-class scripts substantially revised for MERIT-based HRUs, standardized identifiers, and large domain sizes. | Provides scalable and consistent HRU-level parameter generation. |
-| **4b. Forcing remapping** | Original forcing-remapping workflow does not contain the new dedicated ERA5/EM-Earth Slurm-array framework. | Added separate ERA5 and EM-Earth remapping scripts together with `run_remap_ERA5_array.sh` and `run_remap_EM_Earth_array.sh`. | Allows many forcing files to be remapped concurrently on ARC. |
-| **4b. Forcing assembly** | Forcing preparation and assembly follow the original CWARHM processing structure. | Added `3_combine_forcing_for_SUMMA.py` and `run_combine_forcing_array.sh` to assemble remapped forcing into SUMMA-ready files. | Separates computationally expensive remapping from final forcing assembly and facilitates restart/recovery. |
-| **5. SUMMA input generation** | Generates SUMMA file manager, forcing lists, initial conditions, trial parameters, and attribute files. | SUMMA-input scripts revised to operate consistently with NAWM control files, MERIT domains, forcing products, and standardized HRU identifiers. | Allows the same input-generation procedure to be reused across many domains. |
-| **5. SUMMA attributes** | Soil, vegetation, elevation, and other HRU properties are inserted into SUMMA attributes using the original CWARHM structure. | Attribute initialization and parameter-insertion scripts revised to maintain consistent HRU identifiers and parameter mappings across NAWM domains. | Reduces identifier/order mismatches and improves reproducibility. |
-| **5. mizuRoute inputs** | Creates topology and control files from the river-network information supplied by the user. | Network-topology and control-file generation extensively revised for MERIT-Basins networks, including `COMID`, `NextDownID`, and HRU-to-segment relationships. | Enables systematic construction of mizuRoute networks directly from MERIT hydrography. |
-| **6. SUMMA execution** | Provides SUMMA execution, including array-based execution capabilities. | `1_run_summa_as_array.sh` revised and incorporated into a coordinated Stage 6 Slurm workflow. | Enables efficient parallel execution of large MERIT domains on ARC. |
-| **6. SUMMA output handling** | No equivalent dedicated merge stage in the original Stage 6 sequence. | Added `2_merge_summa_array_outputs.py` and `2_merge_summa_array_outputs.sh`. | Allows distributed SUMMA outputs to be automatically assembled before river routing. |
-| **6. mizuRoute execution** | `2_run_mizuRoute.sh` follows SUMMA execution. | Routing moved to `3_run_mizuRoute.sh` after SUMMA-output merging. | Explicitly enforces the sequence SUMMA arrays → merge → mizuRoute. |
-| **6. Batch orchestration** | Individual workflow/model-run scripts require more direct user execution. | Added `0_prepare_stage6.py` and `0_submit_stage6.sh` for preparation and submission of the Stage 6 workflow. | Reduces manual job management and makes large-domain simulations repeatable. |
-| **6. Verification** | No dedicated final Stage 6 verification script. | Added `4_verify_stage6.py`. | Systematically detects missing, incomplete, or failed SUMMA/mizuRoute simulations. |
-| **Overall processing approach** | General reproducible workflow capable of local through global model configuration, but requiring externally prepared spatial discretizations and substantial user interaction between processing stages. | MERIT-based domain generation, shared continental datasets, EM-Earth/ERA5 support, standardized inputs, Slurm-array processing, staged SUMMA–mizuRoute execution, and automated verification. | Provides an operational framework for repeatedly configuring and executing hydrological simulations across North American MERIT domains. |
-
----
-
-## Domain preparation
-
-One of the most important differences between the original and NAWM workflows occurs **before the original CWARHM processing sequence begins**.
-
-The original CWARHM implementation deliberately excludes spatial discretization from its scope. Users are expected to provide a shapefile containing the SUMMA GRU/HRU discretization and a corresponding river-network shapefile for mizuRoute.
-
-For NAWM, a new `00_prepare_domain_shapefiles/` stage was therefore introduced. This stage derives CWARHM-compatible catchment and river-network datasets from **MERIT-Basins** and constructs the attributes required by the subsequent CWARHM workflow, including `COMID`, `GRU_ID`, `HRU_ID`, HRU area, downstream connectivity, and HRU-to-segment relationships. It also reports spatial information required by the CWARHM control file.
-
-**Benefit:** Domain generation becomes part of the reproducible workflow rather than an external prerequisite. This makes it practical to generate consistent configurations for many MERIT/Pfaf domains.
-
-## Shared continental parameter datasets
-
-The original CWARHM workflow downloads and processes the datasets required for a modelling application. This approach is convenient for independent applications but can result in unnecessary duplication when many domains are processed on the same HPC system.
-
-The NAWM workflow therefore makes greater use of datasets maintained centrally on ARC. For example, existing MERIT-Hydro DEM tiles can be linked from the shared data archive rather than downloaded or duplicated for each modelling domain. MERIT DEM and MODIS processing scripts were revised to accommodate this shared-data structure.
-
-**Benefit:** Large source datasets can be stored once and reused across domains, substantially reducing storage requirements, data duplication, and preprocessing time.
-
-## HRU parameter extraction
-
-CWARHM maps model-agnostic geospatial information to the HRUs required by SUMMA. The NAWM revision retains this concept but substantially revises the elevation, soil-class, and land-cover extraction scripts for MERIT-based HRUs, standardized identifiers, larger domains, and repeated automated execution.
-
-**Benefit:** HRU parameter generation can be performed consistently across many domains without basin-specific modifications to the processing scripts.
-
-## Meteorological forcing
-
-The original CWARHM implementation uses **ERA5** meteorological forcing. The NAWM workflow adds an explicit **EM-Earth** pathway while retaining ERA5 support.
-
-Dedicated scripts separately process ERA5 and EM-Earth forcing. Spatial remapping is also separated from final forcing-file assembly. Individual forcing files can be remapped concurrently using Slurm arrays before being combined into SUMMA-ready forcing datasets.
-
-**Benefit:** Large numbers of meteorological files and long simulation periods can be processed efficiently on ARC. EM-Earth can serve as the standard NAWM forcing product while ERA5 remains available for alternative experiments and comparisons.
-
-## SUMMA input generation
-
-The underlying role of the SUMMA input-generation stage remains unchanged. CWARHM creates the file manager, forcing-file list, initial conditions, trial parameters, and attributes required by SUMMA.
-
-The NAWM modifications adapt these scripts to the standardized NAWM directory structure, MERIT identifiers, revised forcing products, and parameter-extraction outputs.
-
-**Benefit:** A common SUMMA configuration procedure can be applied repeatedly to different North American domains without manually rewriting paths or adapting individual scripts.
-
-## mizuRoute network preparation
-
-The original CWARHM workflow constructs mizuRoute inputs from a river-network shapefile supplied by the user. In the NAWM implementation, the network topology and mizuRoute control-file scripts were expanded to work systematically with MERIT-Basins hydrography.
-
-The revised workflow handles MERIT `COMID` identifiers, `NextDownID` connectivity, and HRU-to-river-segment relationships consistently throughout domain preparation and routing-input generation.
-
-**Benefit:** mizuRoute networks can be constructed reproducibly from a common continental hydrographic framework while preserving downstream river connectivity.
-
-## Parallel model execution
-
-The NAWM revision introduces a more coordinated HPC execution strategy for the SUMMA–mizuRoute model chain. SUMMA calculations are distributed using Slurm arrays, and dedicated scripts prepare and submit Stage 6 jobs.
-
-Parallel SUMMA execution can produce multiple output components. A new merge stage therefore assembles these outputs before they are passed to mizuRoute.
-
-The resulting model-execution sequence is:
-
-**SUMMA array simulations → merge SUMMA outputs → mizuRoute simulation → verification**
-
-**Benefit:** Large model domains can be distributed across ARC compute resources while ensuring that routing begins only after all required SUMMA results have been successfully assembled.
-
-## Automated verification
-
-The revised Stage 6 workflow concludes with an automated verification step that checks whether the expected SUMMA and mizuRoute outputs were successfully generated.
-
-**Benefit:** Failed or incomplete jobs can be identified systematically, which is particularly important when processing large numbers of domains or Slurm-array tasks.
-
----
-
-## Overall significance
-
-The original CWARHM should not be characterized simply as a small-catchment or sequential workflow. Knoben et al. (2022) explicitly demonstrated that CWARHM could configure models from the local to global scale, including a continental North American experiment.
-
-The distinction is instead that the **NAWM-CWARHM workflow operationalizes and extends this architecture for repeated North American model production**.
-
-In summary:
-
-**Original CWARHM:** A general, reproducible and modular framework for configuring SUMMA and mizuRoute across local to global domains. Spatial discretization is supplied externally, ERA5 provides meteorological forcing, and the workflow provides the model-agnostic and model-specific processing required to construct hydrological simulations.
-
-**NAWM-CWARHM:** Retains the CWARHM scientific and organizational framework but adds reproducible MERIT-based domain generation, shared continental data management, EM-Earth forcing support, standardized MERIT identifiers, parallel forcing processing, coordinated Slurm execution, SUMMA-output merging, and automated run verification.
-
-The NAWM modifications therefore primarily address **automation, standardization, computational scalability, and repeated production**, allowing CWARHM to serve as the model-configuration and execution framework for hydrological simulations across North American river basins.
-
-## References
+# References
 
 Clark, M. P., Nijssen, B., Lundquist, J. D., Kavetski, D., Rupp, D. E., Woods, R. A., et al. (2015a). A unified approach for process-based hydrologic modeling: 1. Modeling concept. *Water Resources Research*, **51**, 2498–2514. https://doi.org/10.1002/2015WR017198
 
