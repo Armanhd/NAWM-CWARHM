@@ -1,28 +1,35 @@
 #!/bin/bash
 #SBATCH --job-name=emearth_remap
-#SBATCH --time=02:00:00
+#SBATCH --time=08:00:00
 #SBATCH --mem=4G
 #SBATCH --cpus-per-task=1
+#SBATCH --output=slurm_logs/emearth_remap_%A_%a.out
+#SBATCH --error=slurm_logs/emearth_remap_%A_%a.err
 
 # ============================================================
-# MULTIBASIN EM-EARTH REMAPPING SLURM WORKER
+# MULTIBASIN EM-EARTH REMAPPING - CHUNKED SLURM WORKER
 # ============================================================
 #
 # Purpose
 # -------
-# Process one basin-month EM-Earth remapping task.
-#
-# Each SLURM_ARRAY_TASK_ID selects one row from a task file.
+# Process multiple basin-month EM-Earth remapping tasks
+# inside one Slurm array element.
 #
 # Task-file format:
 #
 #   control_file<TAB>year<TAB>month
 #
-# Example:
+# Example submission:
 #
-# /work/.../control_MERIT_717.txt    1950    1
-# /work/.../control_MERIT_717.txt    1950    2
-# /work/.../control_MERIT_718.txt    1950    1
+#   CHUNK_SIZE=500
+#   N=$(wc -l < multibasin_month_tasks.txt)
+#   NCHUNKS=$(( (N + CHUNK_SIZE - 1) / CHUNK_SIZE ))
+#
+#   sbatch \
+#     --array=0-$((NCHUNKS-1)) \
+#     run_remap_EM_Earth_array.sh \
+#     multibasin_month_tasks.txt \
+#     "$CHUNK_SIZE"
 #
 # IMPORTANT
 # ---------
@@ -30,16 +37,8 @@
 #
 #   - does NOT use control_active.txt
 #   - does NOT modify any control file
-#   - is safe for simultaneous multibasin execution
-#
-# Submission example:
-#
-#   N=$(wc -l < multibasin_month_tasks.txt)
-#
-#   sbatch \
-#     --array=0-$((N-1))%20 \
-#     run_remap_EM_Earth_array.sh \
-#     multibasin_month_tasks.txt
+#   - keeps the existing EM-Earth remapping Python code unchanged
+#   - processes many monthly operations per Slurm job
 #
 # ============================================================
 
@@ -58,25 +57,32 @@ PYTHON_SCRIPT="${SCRIPT_DIR}/2b_remap_all_EM_Earth.py"
 
 
 # ============================================================
-# CHECK TASK FILE ARGUMENT
+# ARGUMENTS
 # ============================================================
 
-if [ "$#" -ne 1 ]; then
+if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
 
-    echo "ERROR: A task file must be supplied."
+    echo "ERROR: Invalid number of arguments."
     echo
     echo "Usage:"
-    echo "  sbatch --array=0-N%20 \\"
+    echo "  sbatch --array=0-N \\"
     echo "    run_remap_EM_Earth_array.sh \\"
-    echo "    /path/to/multibasin_month_tasks.txt"
+    echo "    /path/to/multibasin_month_tasks.txt \\"
+    echo "    [CHUNK_SIZE]"
 
     exit 1
 
 fi
 
 
-TASK_FILE="$1"
+TASK_FILE=$(realpath "$1")
 
+CHUNK_SIZE="${2:-500}"
+
+
+# ============================================================
+# VALIDATE INPUTS
+# ============================================================
 
 if [ ! -f "${TASK_FILE}" ]; then
 
@@ -88,9 +94,15 @@ if [ ! -f "${TASK_FILE}" ]; then
 fi
 
 
-# ============================================================
-# CHECK SLURM ARRAY ID
-# ============================================================
+if ! [[ "${CHUNK_SIZE}" =~ ^[0-9]+$ ]] || [ "${CHUNK_SIZE}" -lt 1 ]; then
+
+    echo "ERROR: CHUNK_SIZE must be a positive integer."
+    echo "Received: ${CHUNK_SIZE}"
+
+    exit 1
+
+fi
+
 
 if [ -z "${SLURM_ARRAY_TASK_ID:-}" ]; then
 
@@ -101,121 +113,6 @@ if [ -z "${SLURM_ARRAY_TASK_ID:-}" ]; then
 
 fi
 
-
-# ============================================================
-# READ TASK
-# ============================================================
-
-LINE_NUMBER=$((SLURM_ARRAY_TASK_ID + 1))
-
-TASK_LINE=$(sed -n "${LINE_NUMBER}p" "${TASK_FILE}")
-
-
-if [ -z "${TASK_LINE}" ]; then
-
-    echo "ERROR: No task found for array index:"
-    echo "${SLURM_ARRAY_TASK_ID}"
-
-    echo
-    echo "Task file:"
-    echo "${TASK_FILE}"
-
-    exit 1
-
-fi
-
-
-IFS=$'\t' read -r CONTROL_FILE YEAR MONTH <<< "${TASK_LINE}"
-
-
-# ============================================================
-# VALIDATE TASK
-# ============================================================
-
-if [ -z "${CONTROL_FILE:-}" ] || \
-   [ -z "${YEAR:-}" ] || \
-   [ -z "${MONTH:-}" ]; then
-
-    echo "ERROR: Invalid task-file row:"
-    echo "${TASK_LINE}"
-
-    echo
-    echo "Expected format:"
-    echo "control_file<TAB>year<TAB>month"
-
-    exit 1
-
-fi
-
-
-if [ ! -f "${CONTROL_FILE}" ]; then
-
-    echo "ERROR: Control file not found:"
-    echo "${CONTROL_FILE}"
-
-    exit 1
-
-fi
-
-
-if ! [[ "${YEAR}" =~ ^[0-9]{4}$ ]]; then
-
-    echo "ERROR: Invalid year:"
-    echo "${YEAR}"
-
-    exit 1
-
-fi
-
-
-if ! [[ "${MONTH}" =~ ^[0-9]{1,2}$ ]]; then
-
-    echo "ERROR: Invalid month:"
-    echo "${MONTH}"
-
-    exit 1
-
-fi
-
-
-if [ "${MONTH}" -lt 1 ] || [ "${MONTH}" -gt 12 ]; then
-
-    echo "ERROR: Month must be between 1 and 12."
-    echo "Received: ${MONTH}"
-
-    exit 1
-
-fi
-
-
-# ============================================================
-# READ DOMAIN NAME FOR REPORTING
-# ============================================================
-
-DOMAIN=$(awk -F'|' '
-    /^[[:space:]]*domain_name[[:space:]]*\|/ {
-        value=$2
-        sub(/#.*/, "", value)
-        gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
-        print value
-        exit
-    }
-' "${CONTROL_FILE}")
-
-
-if [ -z "${DOMAIN}" ]; then
-
-    echo "ERROR: Could not read domain_name from:"
-    echo "${CONTROL_FILE}"
-
-    exit 1
-
-fi
-
-
-# ============================================================
-# VALIDATE PYTHON SCRIPT
-# ============================================================
 
 if [ ! -f "${PYTHON_SCRIPT}" ]; then
 
@@ -228,26 +125,36 @@ fi
 
 
 # ============================================================
-# REPORT
+# CALCULATE CHUNK RANGE
 # ============================================================
 
-echo
-echo "======================================================================"
-echo "MULTIBASIN EM-EARTH HRU REMAPPING"
-echo "======================================================================"
-echo
-echo "Slurm job ID       : ${SLURM_JOB_ID:-unknown}"
-echo "Array task ID      : ${SLURM_ARRAY_TASK_ID}"
-echo "Task-file line     : ${LINE_NUMBER}"
-echo
-echo "Domain             : ${DOMAIN}"
-echo "Control file       : ${CONTROL_FILE}"
-echo "Year               : ${YEAR}"
-echo "Month              : ${MONTH}"
-echo
-echo "Python script      : ${PYTHON_SCRIPT}"
-echo "Task file          : ${TASK_FILE}"
-echo
+TOTAL_TASKS=$(wc -l < "${TASK_FILE}")
+
+START_INDEX=$((SLURM_ARRAY_TASK_ID * CHUNK_SIZE))
+END_INDEX=$((START_INDEX + CHUNK_SIZE - 1))
+
+if [ "${START_INDEX}" -ge "${TOTAL_TASKS}" ]; then
+
+    echo "ERROR: Chunk starts beyond end of task file."
+    echo
+    echo "Array task ID : ${SLURM_ARRAY_TASK_ID}"
+    echo "Chunk size    : ${CHUNK_SIZE}"
+    echo "Start index   : ${START_INDEX}"
+    echo "Total tasks   : ${TOTAL_TASKS}"
+
+    exit 1
+
+fi
+
+
+if [ "${END_INDEX}" -ge "${TOTAL_TASKS}" ]; then
+    END_INDEX=$((TOTAL_TASKS - 1))
+fi
+
+
+START_LINE=$((START_INDEX + 1))
+END_LINE=$((END_INDEX + 1))
+TASK_COUNT=$((END_INDEX - START_INDEX + 1))
 
 
 # ============================================================
@@ -256,19 +163,205 @@ echo
 
 module load conda/base
 
-
 cd "${SCRIPT_DIR}"
 
 
 # ============================================================
-# RUN EM-EARTH REMAPPING
+# REPORT
 # ============================================================
 
-conda run --no-capture-output -n nwam \
-    python "${PYTHON_SCRIPT}" \
-    "${CONTROL_FILE}" \
-    "${YEAR}" \
-    "${MONTH}"
+echo
+echo "======================================================================"
+echo "MULTIBASIN EM-EARTH HRU REMAPPING - CHUNKED"
+echo "======================================================================"
+echo
+echo "Slurm job ID       : ${SLURM_JOB_ID:-unknown}"
+echo "Array task ID      : ${SLURM_ARRAY_TASK_ID}"
+echo
+echo "Task file          : ${TASK_FILE}"
+echo "Python script      : ${PYTHON_SCRIPT}"
+echo
+echo "Total monthly tasks: ${TOTAL_TASKS}"
+echo "Chunk size         : ${CHUNK_SIZE}"
+echo "Chunk start index  : ${START_INDEX}"
+echo "Chunk end index    : ${END_INDEX}"
+echo "Task-file lines    : ${START_LINE}-${END_LINE}"
+echo "Tasks in this job  : ${TASK_COUNT}"
+echo
+echo "Start time         : $(date)"
+echo
+
+
+# ============================================================
+# PROCESS CHUNK
+# ============================================================
+
+PROCESSED=0
+FAILED=0
+
+for TASK_INDEX in $(seq "${START_INDEX}" "${END_INDEX}"); do
+
+    LINE_NUMBER=$((TASK_INDEX + 1))
+
+    TASK_LINE=$(sed -n "${LINE_NUMBER}p" "${TASK_FILE}")
+
+
+    if [ -z "${TASK_LINE}" ]; then
+
+        echo
+        echo "ERROR: No task found at task-file line ${LINE_NUMBER}"
+
+        FAILED=$((FAILED + 1))
+        continue
+
+    fi
+
+
+    # --------------------------------------------------------
+    # PARSE TASK
+    # --------------------------------------------------------
+
+    IFS=$'\t' read -r CONTROL_FILE YEAR MONTH <<< "${TASK_LINE}"
+
+
+    if [ -z "${CONTROL_FILE:-}" ] || \
+       [ -z "${YEAR:-}" ] || \
+       [ -z "${MONTH:-}" ]; then
+
+        echo
+        echo "ERROR: Invalid task-file row:"
+        echo "${TASK_LINE}"
+
+        FAILED=$((FAILED + 1))
+        continue
+
+    fi
+
+
+    CONTROL_FILE=$(realpath "${CONTROL_FILE}")
+
+
+    # --------------------------------------------------------
+    # VALIDATE TASK
+    # --------------------------------------------------------
+
+    if [ ! -f "${CONTROL_FILE}" ]; then
+
+        echo
+        echo "ERROR: Control file not found:"
+        echo "${CONTROL_FILE}"
+
+        FAILED=$((FAILED + 1))
+        continue
+
+    fi
+
+
+    if ! [[ "${YEAR}" =~ ^[0-9]{4}$ ]]; then
+
+        echo
+        echo "ERROR: Invalid year: ${YEAR}"
+
+        FAILED=$((FAILED + 1))
+        continue
+
+    fi
+
+
+    if ! [[ "${MONTH}" =~ ^[0-9]{1,2}$ ]]; then
+
+        echo
+        echo "ERROR: Invalid month: ${MONTH}"
+
+        FAILED=$((FAILED + 1))
+        continue
+
+    fi
+
+
+    if [ "${MONTH}" -lt 1 ] || [ "${MONTH}" -gt 12 ]; then
+
+        echo
+        echo "ERROR: Month must be between 1 and 12."
+        echo "Received: ${MONTH}"
+
+        FAILED=$((FAILED + 1))
+        continue
+
+    fi
+
+
+    # --------------------------------------------------------
+    # DOMAIN
+    # --------------------------------------------------------
+
+    DOMAIN=$(awk -F'|' '
+        /^[[:space:]]*domain_name[[:space:]]*\|/ {
+            value=$2
+            sub(/#.*/, "", value)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+            print value
+            exit
+        }
+    ' "${CONTROL_FILE}")
+
+
+    if [ -z "${DOMAIN}" ]; then
+
+        echo
+        echo "ERROR: Could not read domain_name from:"
+        echo "${CONTROL_FILE}"
+
+        FAILED=$((FAILED + 1))
+        continue
+
+    fi
+
+
+    printf -v MONTH2 "%02d" "${MONTH}"
+    YM="${YEAR}${MONTH2}"
+
+
+    # --------------------------------------------------------
+    # REPORT TASK
+    # --------------------------------------------------------
+
+    echo
+    echo "----------------------------------------------------------------------"
+    echo "TASK ${TASK_INDEX} / FILE LINE ${LINE_NUMBER}"
+    echo "----------------------------------------------------------------------"
+    echo "Domain       : ${DOMAIN}"
+    echo "Control file : ${CONTROL_FILE}"
+    echo "Month        : ${YM}"
+    echo "Start        : $(date)"
+
+
+    # --------------------------------------------------------
+    # RUN EXISTING EM-EARTH REMAPPING
+    # --------------------------------------------------------
+
+    if conda run --no-capture-output -n nwam \
+        python "${PYTHON_SCRIPT}" \
+        "${CONTROL_FILE}" \
+        "${YEAR}" \
+        "${MONTH}"
+    then
+
+        PROCESSED=$((PROCESSED + 1))
+
+        echo
+        echo "PASS: ${DOMAIN} ${YM}"
+
+    else
+
+        FAILED=$((FAILED + 1))
+
+        echo
+        echo "FAIL: ${DOMAIN} ${YM}"
+
+    fi
+
+done
 
 
 # ============================================================
@@ -277,10 +370,24 @@ conda run --no-capture-output -n nwam \
 
 echo
 echo "======================================================================"
-echo "EM-EARTH ARRAY TASK COMPLETED"
+echo "EM-EARTH REMAPPING CHUNK COMPLETED"
 echo "======================================================================"
 echo
-echo "Domain : ${DOMAIN}"
-echo "Month  : ${YEAR}-$(printf '%02d' "${MONTH}")"
+echo "Array task ID : ${SLURM_ARRAY_TASK_ID}"
+echo "Task indices  : ${START_INDEX}-${END_INDEX}"
+echo "Expected      : ${TASK_COUNT}"
+echo "Completed     : ${PROCESSED}"
+echo "Failed        : ${FAILED}"
+echo "End time      : $(date)"
 echo
 echo "No control_active.txt was used or modified."
+echo
+
+
+if [ "${FAILED}" -gt 0 ]; then
+
+    echo "ERROR: ${FAILED} task(s) failed in this chunk."
+
+    exit 1
+
+fi
