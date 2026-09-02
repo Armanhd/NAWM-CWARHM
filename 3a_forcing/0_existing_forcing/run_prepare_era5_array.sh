@@ -1,44 +1,41 @@
 #!/bin/bash
-#SBATCH --job-name=era5_remap
+#SBATCH --job-name=era5_prep
 #SBATCH --time=08:00:00
 #SBATCH --mem=4G
 #SBATCH --cpus-per-task=1
-#SBATCH --output=slurm_logs/era5_remap_%A_%a.out
-#SBATCH --error=slurm_logs/era5_remap_%A_%a.err
+#SBATCH --output=slurm_logs/era5_prep_%A_%a.out
+#SBATCH --error=slurm_logs/era5_prep_%A_%a.err
 
 # ============================================================
-# MULTIBASIN ERA5 REMAPPING - CHUNKED SLURM WORKER
+# MULTIBASIN ERA5 FORCING PREPARATION - CHUNKED WORKER
 # ============================================================
 #
-# Purpose
-# -------
-# Process multiple basin-month ERA5 remapping tasks inside
-# one Slurm array element.
+# One Slurm array task processes MANY basin-month tasks.
 #
 # Task-file format:
 #
 #   control_file<TAB>year<TAB>month
 #
-# Example submission:
+# Example:
 #
 #   CHUNK_SIZE=500
-#   N=$(wc -l < multibasin_month_tasks.txt)
-#   NCHUNKS=$(( (N + CHUNK_SIZE - 1) / CHUNK_SIZE ))
+#   N=$(wc -l < month_tasks.txt)
+#   NJOBS=$(( (N + CHUNK_SIZE - 1) / CHUNK_SIZE ))
 #
 #   sbatch \
-#     --array=0-$((NCHUNKS-1)) \
-#     run_remap_ERA5_array.sh \
-#     multibasin_month_tasks.txt \
-#     "$CHUNK_SIZE"
+#       --array=0-$((NJOBS-1)) \
+#       run_prepare_era5_array.sh \
+#       month_tasks.txt \
+#       "$CHUNK_SIZE"
 #
 # IMPORTANT
 # ---------
 # This script:
 #
 #   - does NOT use control_active.txt
-#   - does NOT modify any control file
-#   - keeps the existing ERA5 remapping Python code unchanged
-#   - processes many monthly operations per Slurm job
+#   - does NOT modify control files
+#   - keeps the existing scientific Python workflow unchanged
+#   - processes multiple monthly tasks inside one Slurm allocation
 #
 # ============================================================
 
@@ -51,9 +48,9 @@ set -euo pipefail
 
 CWARHM="/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin"
 
-SCRIPT_DIR="${CWARHM}/4b_remapping/2_forcing"
+WORKDIR="${CWARHM}/3a_forcing/0_existing_forcing"
 
-PYTHON_SCRIPT="${SCRIPT_DIR}/2a_remap_all_ERA5.py"
+PYTHON_SCRIPT="${WORKDIR}/3_prepare_era5_forcing.py"
 
 
 # ============================================================
@@ -66,9 +63,15 @@ if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
     echo
     echo "Usage:"
     echo "  sbatch --array=0-N \\"
-    echo "    run_remap_ERA5_array.sh \\"
-    echo "    /path/to/multibasin_month_tasks.txt \\"
+    echo "    run_prepare_era5_array.sh \\"
+    echo "    /path/to/month_tasks.txt \\"
     echo "    [CHUNK_SIZE]"
+    echo
+    echo "Example:"
+    echo "  sbatch --array=0-21 \\"
+    echo "    run_prepare_era5_array.sh \\"
+    echo "    month_tasks.txt \\"
+    echo "    500"
 
     exit 1
 
@@ -107,7 +110,7 @@ fi
 if [ -z "${SLURM_ARRAY_TASK_ID:-}" ]; then
 
     echo "ERROR: SLURM_ARRAY_TASK_ID is not defined."
-    echo "Submit this script as a Slurm array."
+    echo "Submit this script using a Slurm array."
 
     exit 1
 
@@ -116,7 +119,7 @@ fi
 
 if [ ! -f "${PYTHON_SCRIPT}" ]; then
 
-    echo "ERROR: ERA5 remapping script not found:"
+    echo "ERROR: Python script not found:"
     echo "${PYTHON_SCRIPT}"
 
     exit 1
@@ -154,6 +157,7 @@ fi
 
 START_LINE=$((START_INDEX + 1))
 END_LINE=$((END_INDEX + 1))
+
 TASK_COUNT=$((END_INDEX - START_INDEX + 1))
 
 
@@ -163,7 +167,7 @@ TASK_COUNT=$((END_INDEX - START_INDEX + 1))
 
 module load conda/base
 
-cd "${SCRIPT_DIR}"
+cd "${WORKDIR}"
 
 
 # ============================================================
@@ -172,7 +176,7 @@ cd "${SCRIPT_DIR}"
 
 echo
 echo "======================================================================"
-echo "MULTIBASIN ERA5 HRU REMAPPING - CHUNKED"
+echo "MULTIBASIN ERA5 FORCING PREPARATION - CHUNKED"
 echo "======================================================================"
 echo
 echo "Slurm job ID       : ${SLURM_JOB_ID:-unknown}"
@@ -205,12 +209,10 @@ for TASK_INDEX in $(seq "${START_INDEX}" "${END_INDEX}"); do
 
     TASK_LINE=$(sed -n "${LINE_NUMBER}p" "${TASK_FILE}")
 
-
     if [ -z "${TASK_LINE}" ]; then
 
         echo
         echo "ERROR: No task found at task-file line ${LINE_NUMBER}"
-
         FAILED=$((FAILED + 1))
         continue
 
@@ -337,7 +339,7 @@ for TASK_INDEX in $(seq "${START_INDEX}" "${END_INDEX}"); do
 
 
     # --------------------------------------------------------
-    # RUN EXISTING ERA5 REMAPPING
+    # RUN EXISTING PYTHON WORKER
     # --------------------------------------------------------
 
     if conda run --no-capture-output -n nwam \
@@ -370,7 +372,7 @@ done
 
 echo
 echo "======================================================================"
-echo "ERA5 REMAPPING CHUNK COMPLETED"
+echo "ERA5 FORCING PREPARATION CHUNK COMPLETED"
 echo "======================================================================"
 echo
 echo "Array task ID : ${SLURM_ARRAY_TASK_ID}"
@@ -385,9 +387,6 @@ echo
 
 
 if [ "${FAILED}" -gt 0 ]; then
-
     echo "ERROR: ${FAILED} task(s) failed in this chunk."
-
     exit 1
-
 fi
