@@ -19,8 +19,9 @@ temp/
 0_control_files/control_active.txt
 0_control_files/control_CAN_01AD003_test.txt
 
-# Local forcing data / links
-3a_forcing/0_existing_forcing/
+# Temporary/generated files under forcing preparation
+3a_forcing/0_existing_forcing/slurm_logs/
+3a_forcing/0_existing_forcing/missing_era5_chunk_*
 
 # Generated workflow outputs
 NWAM_workflow_source_dump.txt
