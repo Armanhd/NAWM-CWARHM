@@ -155,6 +155,56 @@ emearthPath = Path(
     )
 )
 
+# ---------------------------------------------------------------------
+# EM-EARTH PRECIPITATION SOURCE
+# ---------------------------------------------------------------------
+#
+# Supported EM-Earth precipitation variables:
+#
+#   prcp           = raw precipitation
+#   prcp_corrected = corrected precipitation
+#
+# Older control files that do not contain forcing_emearth_precip
+# retain the previous CWARHM behaviour and use prcp_corrected.
+
+try:
+
+    emearthPrecip = read_from_control(
+        controlPath,
+        "forcing_emearth_precip"
+    )
+
+except ValueError:
+
+    emearthPrecip = "prcp_corrected"
+
+    print(
+        "WARNING: forcing_emearth_precip is not defined "
+        "in the control file."
+    )
+
+    print(
+        "Defaulting to prcp_corrected to preserve "
+        "the previous CWARHM behaviour."
+    )
+
+
+allowed_emearth_precip = {
+    "prcp",
+    "prcp_corrected",
+}
+
+
+if emearthPrecip not in allowed_emearth_precip:
+
+    raise ValueError(
+        "Invalid forcing_emearth_precip setting:\n"
+        f"  {emearthPrecip}\n\n"
+        "Allowed values are:\n"
+        "  prcp\n"
+        "  prcp_corrected"
+    )
+
 
 forcingRawPath = read_from_control(
     controlPath,
@@ -404,7 +454,9 @@ print(
 print(
     f"EM-Earth root: {emearthPath}"
 )
-
+print(
+    f"Precip source: {emearthPrecip}"
+)
 print(
     f"Output       : {outputPath}"
 )
@@ -655,18 +707,44 @@ for year, month in months_to_process:
         # ---------------------------------------------------------
         # PRECIPITATION
         #
-        # EM-Earth:
-        #   prcp_corrected = mm hour-1
+        # EM-Earth source variable is selected through:
         #
-        # SUMMA:
+        #   forcing_emearth_precip
+        #
+        # Valid options:
+        #
+        #   prcp
+        #   prcp_corrected
+        #
+        # Both source variables have units:
+        #
+        #   mm hour-1
+        #
+        # SUMMA always receives:
+        #
         #   pptrate = kg m-2 s-1
+        #
+        # The downstream variable name therefore does NOT depend
+        # on the selected EM-Earth precipitation product.
         #
         # 1 mm water = 1 kg m-2
         # ---------------------------------------------------------
 
+        if emearthPrecip not in ds_prcp.variables:
+
+            raise RuntimeError(
+                "Selected EM-Earth precipitation variable "
+                "is missing from the source file.\n"
+                f"Selected variable: {emearthPrecip}\n"
+                f"File: {prcpFile}\n"
+                f"Available variables: "
+                f"{list(ds_prcp.variables)}"
+            )
+
+
         pptrate = (
             ds_prcp[
-                "prcp_corrected"
+                emearthPrecip
             ]
             / 3600.0
         ).astype(
@@ -678,13 +756,12 @@ for year, month in months_to_process:
             "units": "kg m-2 s-1",
             "long_name": (
                 "precipitation rate from "
-                "EM-Earth corrected precipitation"
+                f"EM-Earth {emearthPrecip}"
             ),
             "standard_name": (
                 "precipitation_flux"
             )
         }
-
 
         # ---------------------------------------------------------
         # TEMPERATURE
@@ -766,9 +843,8 @@ for year, month in months_to_process:
         ds_out.attrs[
             "Source precipitation"
         ] = (
-            "EM-Earth prcp_corrected"
+            f"EM-Earth {emearthPrecip}"
         )
-
 
         ds_out.attrs[
             "Source temperature"
@@ -961,7 +1037,12 @@ with open(
     )
 
     file.write(
-        "Converted prcp_corrected from "
+        f"EM-Earth precipitation source: "
+        f"{emearthPrecip}\n"
+    )
+
+    file.write(
+        f"Converted {emearthPrecip} from "
         "mm hour-1 to pptrate in "
         "kg m-2 s-1.\n"
     )

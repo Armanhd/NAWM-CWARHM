@@ -40,6 +40,22 @@ Optional dataset-specific control settings can also be included as
 columns in the inventory CSV. If present and non-empty, they override
 the corresponding value inherited from the template.
 
+EM-Earth precipitation
+----------------------
+The generated controls explicitly record which EM-Earth precipitation
+field should be used:
+
+    forcing_emearth_precip | prcp
+
+or:
+
+    forcing_emearth_precip | prcp_corrected
+
+This selection affects only the EM-Earth source variable that is read.
+The downstream SUMMA variable remains:
+
+    pptrate
+
 Examples
 --------
 MERIT_725 through MERIT_729:
@@ -48,14 +64,17 @@ MERIT_725 through MERIT_729:
         --prefix MERIT_72 \
         --start-domain MERIT_725 \
         --limit 5 \
+        --emearth-precip prcp_corrected \
         --dry-run
 
-CENTURY domains:
+CENTURY domains using raw precipitation:
 
     python 0_generate_multibasin_control_files.py \
         --csv ../0_control_files/CENTURY_control_file_inputs.csv \
         --prefix CAN_ \
-        --limit 5 \
+        --start-domain CAN_04CA003 \
+        --limit 4 \
+        --emearth-precip prcp \
         --dry-run
 """
 
@@ -83,6 +102,13 @@ SHARED_SOIL_CLASS_DIR = Path(
 )
 
 DEFAULT_BBOX_BUFFER = 0.25
+
+DEFAULT_EMEARTH_PRECIP = "prcp_corrected"
+
+VALID_EMEARTH_PRECIP = [
+    "prcp",
+    "prcp_corrected",
+]
 
 
 # ============================================================
@@ -130,8 +156,12 @@ OPTIONAL_CONTROL_COLUMNS = [
 # ============================================================
 
 def parse_args():
+
     parser = argparse.ArgumentParser(
-        description="Generate CWARHM multibasin control files from a domain inventory."
+        description=(
+            "Generate CWARHM multibasin control files "
+            "from a domain inventory."
+        )
     )
 
     parser.add_argument(
@@ -145,19 +175,28 @@ def parse_args():
         "--template",
         type=Path,
         default=DEFAULT_TEMPLATE,
-        help="Validated CWARHM control file used as template."
+        help=(
+            "Validated CWARHM control file used "
+            "as template."
+        )
     )
 
     parser.add_argument(
         "--prefix",
         default=None,
-        help="Only include domains beginning with this prefix, e.g. MERIT_72 or CAN_."
+        help=(
+            "Only include domains beginning with this "
+            "prefix, e.g. MERIT_72 or CAN_."
+        )
     )
 
     parser.add_argument(
         "--start-domain",
         default=None,
-        help="Start selection at this domain after sorting, e.g. MERIT_725."
+        help=(
+            "Start selection at this domain after sorting, "
+            "e.g. MERIT_725."
+        )
     )
 
     parser.add_argument(
@@ -171,7 +210,22 @@ def parse_args():
         "--bbox-buffer",
         type=float,
         default=DEFAULT_BBOX_BUFFER,
-        help="Geographic buffer in degrees around catchment extent."
+        help=(
+            "Geographic buffer in degrees around "
+            "catchment extent."
+        )
+    )
+
+    parser.add_argument(
+        "--emearth-precip",
+        choices=VALID_EMEARTH_PRECIP,
+        default=DEFAULT_EMEARTH_PRECIP,
+        help=(
+            "EM-Earth precipitation source variable. "
+            "Valid choices are prcp and prcp_corrected. "
+            "The downstream SUMMA variable remains pptrate. "
+            "Default: prcp_corrected."
+        )
     )
 
     parser.add_argument(
@@ -194,38 +248,207 @@ def parse_args():
 # ============================================================
 
 def read_control_lines(file):
-    return file.read_text().splitlines(keepends=True)
+
+    return file.read_text().splitlines(
+        keepends=True
+    )
 
 
-def replace_control_setting(lines, setting, value):
+def replace_control_setting(
+    lines,
+    setting,
+    value,
+):
+
     found = False
     output = []
 
     for line in lines:
+
         stripped = line.strip()
 
-        if stripped and not stripped.startswith("#") and "|" in stripped:
-            left, right = line.split("|", 1)
+        if (
+            stripped
+            and not stripped.startswith("#")
+            and "|" in stripped
+        ):
+
+            left, right = line.split(
+                "|",
+                1
+            )
 
             if left.strip() == setting:
+
                 comment = ""
 
                 if "#" in right:
-                    _, comment_text = right.split("#", 1)
-                    comment_text = comment_text.strip()
+
+                    _, comment_text = right.split(
+                        "#",
+                        1
+                    )
+
+                    comment_text = (
+                        comment_text.strip()
+                    )
 
                     if comment_text:
-                        comment = f" # {comment_text}"
 
-                output.append(f"{setting:<35} | {value}{comment}\n")
+                        comment = (
+                            f" # {comment_text}"
+                        )
+
+                output.append(
+                    f"{setting:<35} | "
+                    f"{value}{comment}\n"
+                )
+
                 found = True
                 continue
 
-        output.append(line)
+        output.append(
+            line
+        )
 
     if not found:
+
         raise RuntimeError(
-            f"Setting '{setting}' was not found in the template control file."
+            f"Setting '{setting}' was not found "
+            "in the template control file."
+        )
+
+    return output
+
+
+def set_or_add_control_setting(
+    lines,
+    setting,
+    value,
+    insert_after=None,
+):
+    """
+    Replace a control setting if it already exists.
+
+    If it does not exist, add it after insert_after.
+
+    This lets older validated templates remain usable even
+    if they predate forcing_emearth_precip.
+    """
+
+    setting_exists = False
+
+    for line in lines:
+
+        stripped = line.strip()
+
+        if (
+            stripped
+            and not stripped.startswith("#")
+            and "|" in stripped
+        ):
+
+            left, _ = line.split(
+                "|",
+                1
+            )
+
+            if left.strip() == setting:
+
+                setting_exists = True
+                break
+
+    if setting_exists:
+
+        return replace_control_setting(
+            lines,
+            setting,
+            value,
+        )
+
+
+    output = []
+    inserted = False
+
+    for line in lines:
+
+        output.append(
+            line
+        )
+
+        if (
+            not inserted
+            and insert_after is not None
+        ):
+
+            stripped = line.strip()
+
+            if (
+                stripped
+                and not stripped.startswith("#")
+                and "|" in stripped
+            ):
+
+                left, _ = line.split(
+                    "|",
+                    1
+                )
+
+                if (
+                    left.strip()
+                    == insert_after
+                ):
+
+                    output.append(
+                        "\n"
+                    )
+
+                    output.append(
+                        "# EM-Earth precipitation "
+                        "source variable.\n"
+                    )
+
+                    output.append(
+                        "# Valid options: prcp, "
+                        "prcp_corrected.\n"
+                    )
+
+                    output.append(
+                        "# Downstream SUMMA variable "
+                        "remains pptrate.\n"
+                    )
+
+                    output.append(
+                        f"{setting:<35} | "
+                        f"{value}\n"
+                    )
+
+                    inserted = True
+
+    if not inserted:
+
+        output.append(
+            "\n"
+        )
+
+        output.append(
+            "# EM-Earth precipitation "
+            "source variable.\n"
+        )
+
+        output.append(
+            "# Valid options: prcp, "
+            "prcp_corrected.\n"
+        )
+
+        output.append(
+            "# Downstream SUMMA variable "
+            "remains pptrate.\n"
+        )
+
+        output.append(
+            f"{setting:<35} | "
+            f"{value}\n"
         )
 
     return output
@@ -235,7 +458,10 @@ def replace_control_setting(lines, setting, value):
 # SOURCE SHAPEFILE PATH HANDLING
 # ============================================================
 
-def resolve_source_file(source_directory, inventory_value):
+def resolve_source_file(
+    source_directory,
+    inventory_value,
+):
     """
     Resolve a source shapefile listed in the inventory.
 
@@ -253,14 +479,24 @@ def resolve_source_file(source_directory, inventory_value):
         filename
     """
 
-    relative_file = Path(inventory_value)
+    relative_file = Path(
+        inventory_value
+    )
 
     if relative_file.is_absolute():
-        full_file = relative_file
-    else:
-        full_file = source_directory / relative_file
 
-    full_file = full_file.resolve()
+        full_file = relative_file
+
+    else:
+
+        full_file = (
+            source_directory
+            / relative_file
+        )
+
+    full_file = (
+        full_file.resolve()
+    )
 
     return {
         "file": full_file,
@@ -273,27 +509,48 @@ def resolve_source_file(source_directory, inventory_value):
 # FORCING BOUNDING BOX
 # ============================================================
 
-def calculate_forcing_bbox(catchment_file, buffer_degrees):
-    gdf = gpd.read_file(catchment_file)
+def calculate_forcing_bbox(
+    catchment_file,
+    buffer_degrees,
+):
+
+    gdf = gpd.read_file(
+        catchment_file
+    )
 
     if len(gdf) == 0:
+
         raise RuntimeError(
-            f"Catchment shapefile contains no features:\n{catchment_file}"
+            "Catchment shapefile contains "
+            f"no features:\n{catchment_file}"
         )
 
-    raw_west, raw_south, raw_east, raw_north = gdf.total_bounds
+    (
+        raw_west,
+        raw_south,
+        raw_east,
+        raw_north,
+    ) = gdf.total_bounds
 
     if not all(
         math.isfinite(value)
-        for value in [raw_west, raw_south, raw_east, raw_north]
+        for value in [
+            raw_west,
+            raw_south,
+            raw_east,
+            raw_north,
+        ]
     ):
+
         raise RuntimeError(
-            f"Non-finite catchment coordinates found:\n{catchment_file}"
+            "Non-finite catchment coordinates "
+            f"found:\n{catchment_file}"
         )
 
     crs_was_assumed = False
 
     if gdf.crs is None:
+
         geographic_range_ok = (
             -180.0 <= raw_west <= 180.0
             and -180.0 <= raw_east <= 180.0
@@ -304,72 +561,154 @@ def calculate_forcing_bbox(catchment_file, buffer_degrees):
         )
 
         if not geographic_range_ok:
+
             raise RuntimeError(
-                "Catchment has no CRS and coordinates are not consistent "
-                "with longitude/latitude.\n\n"
+                "Catchment has no CRS and coordinates "
+                "are not consistent with longitude/"
+                "latitude.\n\n"
                 f"File: {catchment_file}\n"
-                f"W={raw_west}, S={raw_south}, E={raw_east}, N={raw_north}"
+                f"W={raw_west}, "
+                f"S={raw_south}, "
+                f"E={raw_east}, "
+                f"N={raw_north}"
             )
 
         print()
-        print("WARNING: Source catchment has no CRS metadata.")
-        print("Coordinates are consistent with longitude/latitude.")
-        print("Assuming EPSG:4326 for bounding-box calculation only.")
-        print(f"Source: {catchment_file}")
+        print(
+            "WARNING: Source catchment has "
+            "no CRS metadata."
+        )
 
-        gdf = gdf.set_crs("EPSG:4326", allow_override=True)
+        print(
+            "Coordinates are consistent with "
+            "longitude/latitude."
+        )
+
+        print(
+            "Assuming EPSG:4326 for bounding-box "
+            "calculation only."
+        )
+
+        print(
+            f"Source: {catchment_file}"
+        )
+
+        gdf = gdf.set_crs(
+            "EPSG:4326",
+            allow_override=True,
+        )
+
         crs_was_assumed = True
 
     try:
-        gdf = gdf.to_crs("EPSG:4326")
+
+        gdf = gdf.to_crs(
+            "EPSG:4326"
+        )
+
     except Exception as exc:
+
         raise RuntimeError(
-            f"Could not convert catchment to EPSG:4326:\n"
-            f"{catchment_file}\nSource CRS: {gdf.crs}"
+            "Could not convert catchment "
+            "to EPSG:4326:\n"
+            f"{catchment_file}\n"
+            f"Source CRS: {gdf.crs}"
         ) from exc
 
-    west, south, east, north = gdf.total_bounds
+    (
+        west,
+        south,
+        east,
+        north,
+    ) = gdf.total_bounds
 
     if not all(
         math.isfinite(value)
-        for value in [west, south, east, north]
+        for value in [
+            west,
+            south,
+            east,
+            north,
+        ]
     ):
+
         raise RuntimeError(
-            f"Non-finite bounding-box coordinates found:\n{catchment_file}"
+            "Non-finite bounding-box coordinates "
+            f"found:\n{catchment_file}"
         )
 
-    if west < -180 or east > 180 or south < -90 or north > 90:
+    if (
+        west < -180
+        or east > 180
+        or south < -90
+        or north > 90
+    ):
+
         raise RuntimeError(
-            f"Invalid geographic bounds after CRS conversion:\n"
-            f"{catchment_file}\nW={west}, S={south}, E={east}, N={north}"
+            "Invalid geographic bounds after "
+            "CRS conversion:\n"
+            f"{catchment_file}\n"
+            f"W={west}, "
+            f"S={south}, "
+            f"E={east}, "
+            f"N={north}"
         )
 
-    west = max(west - buffer_degrees, -180.0)
-    east = min(east + buffer_degrees, 180.0)
-    south = max(south - buffer_degrees, -90.0)
-    north = min(north + buffer_degrees, 90.0)
+    west = max(
+        west - buffer_degrees,
+        -180.0,
+    )
+
+    east = min(
+        east + buffer_degrees,
+        180.0,
+    )
+
+    south = max(
+        south - buffer_degrees,
+        -90.0,
+    )
+
+    north = min(
+        north + buffer_degrees,
+        90.0,
+    )
 
     if west >= east:
+
         raise RuntimeError(
-            f"Invalid forcing bounding box: west >= east ({west}, {east})"
+            "Invalid forcing bounding box: "
+            f"west >= east ({west}, {east})"
         )
 
     if south >= north:
+
         raise RuntimeError(
-            f"Invalid forcing bounding box: south >= north ({south}, {north})"
+            "Invalid forcing bounding box: "
+            f"south >= north ({south}, {north})"
         )
 
-    forcing_raw_space = f"{north:.6f}/{west:.6f}/{south:.6f}/{east:.6f}"
+    forcing_raw_space = (
+        f"{north:.6f}/"
+        f"{west:.6f}/"
+        f"{south:.6f}/"
+        f"{east:.6f}"
+    )
 
     return {
         "west": west,
         "south": south,
         "east": east,
         "north": north,
-        "forcing_raw_space": forcing_raw_space,
-        "crs_assumed": crs_was_assumed,
+        "forcing_raw_space": (
+            forcing_raw_space
+        ),
+        "crs_assumed": (
+            crs_was_assumed
+        ),
         "source_crs": (
-            "EPSG:4326 assumed from coordinate range"
+            "EPSG:4326 assumed from "
+            "coordinate range"
             if crs_was_assumed
             else str(gdf.crs)
         ),
@@ -380,43 +719,75 @@ def calculate_forcing_bbox(catchment_file, buffer_degrees):
 # DOMAIN INVENTORY
 # ============================================================
 
-def read_domain_table(csv_file):
+def read_domain_table(
+    csv_file,
+):
+
     if not csv_file.exists():
+
         raise FileNotFoundError(
-            f"Domain inventory CSV not found:\n{csv_file}"
+            "Domain inventory CSV "
+            f"not found:\n{csv_file}"
         )
 
-    with csv_file.open(newline="") as contents:
-        reader = csv.DictReader(contents)
+    with csv_file.open(
+        newline=""
+    ) as contents:
+
+        reader = csv.DictReader(
+            contents
+        )
 
         if reader.fieldnames is None:
-            raise RuntimeError("CSV file has no header.")
 
-        fieldnames = [name.strip() for name in reader.fieldnames]
+            raise RuntimeError(
+                "CSV file has no header."
+            )
+
+        fieldnames = [
+            name.strip()
+            for name in reader.fieldnames
+        ]
 
         missing_columns = [
             column
-            for column in REQUIRED_CSV_COLUMNS
+            for column
+            in REQUIRED_CSV_COLUMNS
             if column not in fieldnames
         ]
 
         if missing_columns:
+
             raise RuntimeError(
                 "Required CSV column(s) missing:\n"
-                + "\n".join(f"  {column}" for column in missing_columns)
+                + "\n".join(
+                    f"  {column}"
+                    for column
+                    in missing_columns
+                )
             )
 
         rows = []
 
         for raw_row in reader:
+
             row = {
-                key.strip(): value.strip() if value else ""
-                for key, value in raw_row.items()
+                key.strip():
+                value.strip()
+                if value
+                else ""
+                for key, value
+                in raw_row.items()
                 if key is not None
             }
 
-            if any(row.values()):
-                rows.append(row)
+            if any(
+                row.values()
+            ):
+
+                rows.append(
+                    row
+                )
 
     return rows
 
@@ -425,66 +796,109 @@ def read_domain_table(csv_file):
 # VALIDATION
 # ============================================================
 
-def validate_domain_row(row):
-    domain = row.get("domain_name", "")
+def validate_domain_row(
+    row,
+):
+
+    domain = row.get(
+        "domain_name",
+        "",
+    )
 
     for column in REQUIRED_CSV_COLUMNS:
-        if not row.get(column, ""):
+
+        if not row.get(
+            column,
+            "",
+        ):
+
             raise RuntimeError(
-                f"Empty '{column}' value for domain '{domain}'."
+                f"Empty '{column}' value "
+                f"for domain '{domain}'."
             )
 
-    source_directory = Path(row["source_directory"]).expanduser().resolve()
+    source_directory = Path(
+        row[
+            "source_directory"
+        ]
+    ).expanduser().resolve()
 
     if not source_directory.exists():
+
         raise FileNotFoundError(
-            f"Source directory not found for {domain}:\n{source_directory}"
+            "Source directory not found "
+            f"for {domain}:\n"
+            f"{source_directory}"
         )
 
     if not source_directory.is_dir():
+
         raise NotADirectoryError(
-            f"Source path is not a directory for {domain}:\n{source_directory}"
+            "Source path is not a directory "
+            f"for {domain}:\n"
+            f"{source_directory}"
         )
 
     catchment = resolve_source_file(
         source_directory,
-        row["catchment_shp_file"]
+        row[
+            "catchment_shp_file"
+        ],
     )
 
     river = resolve_source_file(
         source_directory,
-        row["river_network_shp_file"]
+        row[
+            "river_network_shp_file"
+        ],
     )
 
     basin = resolve_source_file(
         source_directory,
-        row["river_basin_shp_file"]
+        row[
+            "river_basin_shp_file"
+        ],
     )
 
     source_files = {
-        "Catchment": catchment["file"],
-        "River network": river["file"],
-        "Routing basin": basin["file"],
+        "Catchment": (
+            catchment["file"]
+        ),
+        "River network": (
+            river["file"]
+        ),
+        "Routing basin": (
+            basin["file"]
+        ),
     }
 
     missing_files = [
-        (label, file)
-        for label, file in source_files.items()
+        (
+            label,
+            file,
+        )
+        for label, file
+        in source_files.items()
         if not file.exists()
     ]
 
     if missing_files:
+
         message = "\n".join(
             f"  {label}: {file}"
-            for label, file in missing_files
+            for label, file
+            in missing_files
         )
 
         raise FileNotFoundError(
-            f"Missing source shapefile(s) for {domain}:\n{message}"
+            "Missing source shapefile(s) "
+            f"for {domain}:\n{message}"
         )
 
     return {
-        "source_directory": source_directory,
+        "source_directory": (
+            source_directory
+        ),
         "catchment": catchment,
         "river": river,
         "basin": basin,
@@ -492,17 +906,25 @@ def validate_domain_row(row):
 
 
 def validate_shared_data():
+
     if not SHARED_SOIL_CLASS_DIR.is_dir():
+
         raise FileNotFoundError(
-            f"Shared soil-class directory not found:\n"
+            "Shared soil-class directory "
+            "not found:\n"
             f"{SHARED_SOIL_CLASS_DIR}"
         )
 
-    soil_class_file = SHARED_SOIL_CLASS_DIR / "soil_classes.tif"
+    soil_class_file = (
+        SHARED_SOIL_CLASS_DIR
+        / "soil_classes.tif"
+    )
 
     if not soil_class_file.exists():
+
         raise FileNotFoundError(
-            f"Shared soil-class raster not found:\n"
+            "Shared soil-class raster "
+            "not found:\n"
             f"{soil_class_file}"
         )
 
@@ -511,49 +933,146 @@ def validate_shared_data():
 # BUILD CONTROL
 # ============================================================
 
-def build_control(template_lines, row, bbox_buffer):
-    validated = validate_domain_row(row)
+def build_control(
+    template_lines,
+    row,
+    bbox_buffer,
+    emearth_precip,
+):
+
+    validated = validate_domain_row(
+        row
+    )
 
     bbox = calculate_forcing_bbox(
-        validated["catchment"]["file"],
-        bbox_buffer
+        validated[
+            "catchment"
+        ][
+            "file"
+        ],
+        bbox_buffer,
     )
 
     updates = {
-        "domain_name": row["domain_name"],
+        "domain_name":
+            row["domain_name"],
 
-        "catchment_shp_path": str(validated["catchment"]["path"]),
-        "catchment_shp_name": validated["catchment"]["name"],
+        "catchment_shp_path":
+            str(
+                validated[
+                    "catchment"
+                ][
+                    "path"
+                ]
+            ),
 
-        "river_network_shp_path": str(validated["river"]["path"]),
-        "river_network_shp_name": validated["river"]["name"],
+        "catchment_shp_name":
+            validated[
+                "catchment"
+            ][
+                "name"
+            ],
 
-        "river_basin_shp_path": str(validated["basin"]["path"]),
-        "river_basin_shp_name": validated["basin"]["name"],
+        "river_network_shp_path":
+            str(
+                validated[
+                    "river"
+                ][
+                    "path"
+                ]
+            ),
 
-        "forcing_raw_space": bbox["forcing_raw_space"],
+        "river_network_shp_name":
+            validated[
+                "river"
+            ][
+                "name"
+            ],
 
-        "parameter_soil_raw_path": str(SHARED_SOIL_CLASS_DIR),
-        "parameter_soil_domain_path": "default",
+        "river_basin_shp_path":
+            str(
+                validated[
+                    "basin"
+                ][
+                    "path"
+                ]
+            ),
+
+        "river_basin_shp_name":
+            validated[
+                "basin"
+            ][
+                "name"
+            ],
+
+        "forcing_raw_space":
+            bbox[
+                "forcing_raw_space"
+            ],
+
+        "parameter_soil_raw_path":
+            str(
+                SHARED_SOIL_CLASS_DIR
+            ),
+
+        "parameter_soil_domain_path":
+            "default",
     }
 
-    # Apply optional dataset-specific settings from the CSV.
+
+    # Apply optional dataset-specific settings
+    # from the CSV.
+
     for setting in OPTIONAL_CONTROL_COLUMNS:
-        value = row.get(setting, "").strip()
+
+        value = row.get(
+            setting,
+            "",
+        ).strip()
 
         if value:
-            updates[setting] = value
 
-    output_lines = list(template_lines)
+            updates[
+                setting
+            ] = value
+
+
+    output_lines = list(
+        template_lines
+    )
+
 
     for setting, value in updates.items():
+
         output_lines = replace_control_setting(
             output_lines,
             setting,
-            value
+            value,
         )
 
-    return output_lines, bbox, validated, updates
+
+    # Add or update the EM-Earth precipitation
+    # source variable.
+    #
+    # This affects only the source read from
+    # EM-Earth. SUMMA still receives pptrate.
+
+    output_lines = set_or_add_control_setting(
+        output_lines,
+        "forcing_emearth_precip",
+        emearth_precip,
+        insert_after=(
+            "forcing_emearth_path"
+        ),
+    )
+
+
+    return (
+        output_lines,
+        bbox,
+        validated,
+        updates,
+    )
 
 
 # ============================================================
@@ -561,191 +1080,458 @@ def build_control(template_lines, row, bbox_buffer):
 # ============================================================
 
 def main():
+
     args = parse_args()
 
-    csv_file = args.csv.expanduser().resolve()
-    template_file = args.template.expanduser().resolve()
+    csv_file = (
+        args.csv
+        .expanduser()
+        .resolve()
+    )
+
+    template_file = (
+        args.template
+        .expanduser()
+        .resolve()
+    )
 
     if not CONTROL_DIR.exists():
+
         raise FileNotFoundError(
-            f"Control-file directory not found:\n{CONTROL_DIR}"
+            "Control-file directory "
+            f"not found:\n{CONTROL_DIR}"
         )
 
     if not template_file.exists():
+
         raise FileNotFoundError(
-            f"Template control file not found:\n{template_file}"
+            "Template control file "
+            f"not found:\n{template_file}"
         )
 
-    if args.limit is not None and args.limit <= 0:
-        raise ValueError("--limit must be greater than zero.")
+    if (
+        args.limit is not None
+        and args.limit <= 0
+    ):
+
+        raise ValueError(
+            "--limit must be greater "
+            "than zero."
+        )
 
     if args.bbox_buffer < 0:
-        raise ValueError("--bbox-buffer cannot be negative.")
+
+        raise ValueError(
+            "--bbox-buffer cannot be negative."
+        )
 
     validate_shared_data()
 
-    rows = read_domain_table(csv_file)
+    rows = read_domain_table(
+        csv_file
+    )
 
     if args.prefix is not None:
+
         rows = [
             row
             for row in rows
-            if row["domain_name"].startswith(args.prefix)
+            if row[
+                "domain_name"
+            ].startswith(
+                args.prefix
+            )
         ]
 
     rows = sorted(
         rows,
-        key=lambda row: row["domain_name"]
+        key=lambda row:
+        row[
+            "domain_name"
+        ],
     )
 
     if args.start_domain is not None:
+
         domain_names = [
-            row["domain_name"]
+            row[
+                "domain_name"
+            ]
             for row in rows
         ]
 
-        if args.start_domain not in domain_names:
+        if (
+            args.start_domain
+            not in domain_names
+        ):
+
             raise RuntimeError(
-                f"Requested --start-domain was not found:\n"
+                "Requested --start-domain "
+                "was not found:\n"
                 f"{args.start_domain}"
             )
 
-        start_index = domain_names.index(
-            args.start_domain
+        start_index = (
+            domain_names.index(
+                args.start_domain
+            )
         )
 
-        rows = rows[start_index:]
+        rows = rows[
+            start_index:
+        ]
 
     if args.limit is not None:
-        rows = rows[:args.limit]
+
+        rows = rows[
+            :args.limit
+        ]
 
     if not rows:
+
         raise RuntimeError(
-            "No domains matched the requested selection."
+            "No domains matched the "
+            "requested selection."
         )
 
-    template_lines = read_control_lines(
-        template_file
+    template_lines = (
+        read_control_lines(
+            template_file
+        )
     )
 
     print()
     print("=" * 78)
-    print("GENERATE MULTIBASIN CWARHM CONTROL FILES")
+    print(
+        "GENERATE MULTIBASIN "
+        "CWARHM CONTROL FILES"
+    )
     print("=" * 78)
-    print(f"CWARHM root      : {CWARHM_ROOT}")
-    print(f"Control directory: {CONTROL_DIR}")
-    print(f"Input CSV        : {csv_file}")
-    print(f"Template         : {template_file}")
-    print(f"Domain prefix    : {args.prefix or 'ALL'}")
-    print(f"Start domain     : {args.start_domain or 'FIRST MATCH'}")
-    print(f"Selected domains : {len(rows)}")
-    print(f"BBox buffer      : {args.bbox_buffer} degrees")
-    print(f"Soil source      : {SHARED_SOIL_CLASS_DIR}")
-    print("Soil output path : default")
-    print(f"Dry run          : {args.dry_run}")
-    print(f"Overwrite        : {args.overwrite}")
+
+    print(
+        f"CWARHM root      : "
+        f"{CWARHM_ROOT}"
+    )
+
+    print(
+        f"Control directory: "
+        f"{CONTROL_DIR}"
+    )
+
+    print(
+        f"Input CSV        : "
+        f"{csv_file}"
+    )
+
+    print(
+        f"Template         : "
+        f"{template_file}"
+    )
+
+    print(
+        f"Domain prefix    : "
+        f"{args.prefix or 'ALL'}"
+    )
+
+    print(
+        f"Start domain     : "
+        f"{args.start_domain or 'FIRST MATCH'}"
+    )
+
+    print(
+        f"Selected domains : "
+        f"{len(rows)}"
+    )
+
+    print(
+        f"BBox buffer      : "
+        f"{args.bbox_buffer} degrees"
+    )
+
+    print(
+        f"EM-Earth precip  : "
+        f"{args.emearth_precip}"
+    )
+
+    print(
+        f"Soil source      : "
+        f"{SHARED_SOIL_CLASS_DIR}"
+    )
+
+    print(
+        "Soil output path : default"
+    )
+
+    print(
+        f"Dry run          : "
+        f"{args.dry_run}"
+    )
+
+    print(
+        f"Overwrite        : "
+        f"{args.overwrite}"
+    )
+
 
     created = []
     skipped = []
     dry_run_files = []
 
+
     for row in rows:
-        domain = row["domain_name"]
-        output_file = CONTROL_DIR / f"control_{domain}.txt"
+
+        domain = row[
+            "domain_name"
+        ]
+
+        output_file = (
+            CONTROL_DIR
+            / f"control_{domain}.txt"
+        )
 
         print()
         print("-" * 78)
-        print(f"Domain            : {domain}")
 
-        output_lines, bbox, validated, updates = build_control(
-            template_lines,
-            row,
-            args.bbox_buffer
+        print(
+            f"Domain            : "
+            f"{domain}"
         )
 
-        print(f"Source directory  : {validated['source_directory']}")
-        print(f"Catchment path    : {validated['catchment']['path']}")
-        print(f"Catchment name    : {validated['catchment']['name']}")
-        print(f"River path        : {validated['river']['path']}")
-        print(f"River name        : {validated['river']['name']}")
-        print(f"Basin path        : {validated['basin']['path']}")
-        print(f"Basin name        : {validated['basin']['name']}")
-        print(f"Source CRS        : {bbox['source_crs']}")
+        (
+            output_lines,
+            bbox,
+            validated,
+            updates,
+        ) = build_control(
+            template_lines,
+            row,
+            args.bbox_buffer,
+            args.emearth_precip,
+        )
+
         print(
-            f"Bounding box      : N={bbox['north']:.6f}, "
+            f"Source directory  : "
+            f"{validated['source_directory']}"
+        )
+
+        print(
+            f"Catchment path    : "
+            f"{validated['catchment']['path']}"
+        )
+
+        print(
+            f"Catchment name    : "
+            f"{validated['catchment']['name']}"
+        )
+
+        print(
+            f"River path        : "
+            f"{validated['river']['path']}"
+        )
+
+        print(
+            f"River name        : "
+            f"{validated['river']['name']}"
+        )
+
+        print(
+            f"Basin path        : "
+            f"{validated['basin']['path']}"
+        )
+
+        print(
+            f"Basin name        : "
+            f"{validated['basin']['name']}"
+        )
+
+        print(
+            f"Source CRS        : "
+            f"{bbox['source_crs']}"
+        )
+
+        print(
+            f"Bounding box      : "
+            f"N={bbox['north']:.6f}, "
             f"W={bbox['west']:.6f}, "
             f"S={bbox['south']:.6f}, "
             f"E={bbox['east']:.6f}"
         )
-        print(f"forcing_raw_space : {bbox['forcing_raw_space']}")
+
+        print(
+            f"forcing_raw_space : "
+            f"{bbox['forcing_raw_space']}"
+        )
+
+        print(
+            f"EM-Earth precip   : "
+            f"{args.emearth_precip}"
+        )
+
 
         optional_updates = [
             setting
-            for setting in OPTIONAL_CONTROL_COLUMNS
+            for setting
+            in OPTIONAL_CONTROL_COLUMNS
             if setting in updates
         ]
 
         if optional_updates:
-            print("Dataset overrides :")
+
+            print(
+                "Dataset overrides :"
+            )
+
             for setting in optional_updates:
-                print(f"  {setting} = {updates[setting]}")
+
+                print(
+                    f"  {setting} = "
+                    f"{updates[setting]}"
+                )
+
         else:
-            print("Dataset overrides : none")
 
-        print(f"Control output    : {output_file}")
+            print(
+                "Dataset overrides : none"
+            )
 
-        if output_file.exists() and not args.overwrite:
-            print("Status            : SKIPPED - already exists")
-            skipped.append(output_file)
-            continue
-
-        if args.dry_run:
-            print("Status            : DRY RUN - not written")
-            dry_run_files.append(output_file)
-            continue
-
-        output_file.write_text(
-            "".join(output_lines)
+        print(
+            f"Control output    : "
+            f"{output_file}"
         )
 
-        if not output_file.exists() or output_file.stat().st_size == 0:
+
+        if (
+            output_file.exists()
+            and not args.overwrite
+        ):
+
+            print(
+                "Status            : "
+                "SKIPPED - already exists"
+            )
+
+            skipped.append(
+                output_file
+            )
+
+            continue
+
+
+        if args.dry_run:
+
+            print(
+                "Status            : "
+                "DRY RUN - not written"
+            )
+
+            dry_run_files.append(
+                output_file
+            )
+
+            continue
+
+
+        output_file.write_text(
+            "".join(
+                output_lines
+            )
+        )
+
+
+        if (
+            not output_file.exists()
+            or output_file.stat().st_size == 0
+        ):
+
             raise RuntimeError(
-                f"Control file was not created correctly:\n"
+                "Control file was not "
+                "created correctly:\n"
                 f"{output_file}"
             )
 
-        created.append(output_file)
-        print("Status            : CREATED")
+
+        created.append(
+            output_file
+        )
+
+        print(
+            "Status            : CREATED"
+        )
+
 
     print()
     print("=" * 78)
-    print("CONTROL FILE GENERATION COMPLETED")
+    print(
+        "CONTROL FILE GENERATION "
+        "COMPLETED"
+    )
     print("=" * 78)
-    print(f"Selected : {len(rows)}")
-    print(f"Created  : {len(created)}")
-    print(f"Skipped  : {len(skipped)}")
-    print(f"Dry run  : {len(dry_run_files)}")
+
+    print(
+        f"Selected : {len(rows)}"
+    )
+
+    print(
+        f"Created  : {len(created)}"
+    )
+
+    print(
+        f"Skipped  : {len(skipped)}"
+    )
+
+    print(
+        f"Dry run  : {len(dry_run_files)}"
+    )
+
+    print(
+        f"EM-Earth precipitation "
+        f"source: {args.emearth_precip}"
+    )
+
 
     if created:
+
         print()
-        print("Created control files:")
+        print(
+            "Created control files:"
+        )
 
         for file in created:
-            print(f"  {file.name}")
+
+            print(
+                f"  {file.name}"
+            )
+
 
     if skipped:
+
         print()
-        print("Skipped existing control files:")
+        print(
+            "Skipped existing control files:"
+        )
 
         for file in skipped:
-            print(f"  {file.name}")
+
+            print(
+                f"  {file.name}"
+            )
+
 
     print()
-    print("Shared soil-class source:")
-    print(f"  {SHARED_SOIL_CLASS_DIR / 'soil_classes.tif'}")
+    print(
+        "Shared soil-class source:"
+    )
+
+    print(
+        f"  "
+        f"{SHARED_SOIL_CLASS_DIR / 'soil_classes.tif'}"
+    )
 
     print()
-    print("No control_active.txt was created or modified.")
+    print(
+        "No control_active.txt was "
+        "created or modified."
+    )
 
 
 # ============================================================
@@ -753,4 +1539,5 @@ def main():
 # ============================================================
 
 if __name__ == "__main__":
+
     main()
