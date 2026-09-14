@@ -4,13 +4,24 @@
 #
 # Purpose
 # -------
-# Read the original MERIT catchment shapefile as a READ-ONLY source,
+# Read the original catchment shapefile as a READ-ONLY source,
 # construct the attributes required by SUMMA and mizuRoute, and write
 # a prepared working copy into the CWARHM domain directory.
 #
 # IMPORTANT
 # ---------
-# The original MERIT source shapefile is NEVER overwritten.
+# The original source shapefile is NEVER overwritten.
+#
+# Existing integer basin IDs are retained unchanged.
+#
+# Fractional CAMELS-SPAT split-reach IDs that lie exactly on the
+# verified 0.1 grid are converted to unique integer IDs:
+#
+#   72032368   -> 72032368
+#   72032368.1 -> 720323681
+#   72032368.2 -> 720323682
+#
+# This is the same ID rule used by 1_prepare_river_network.py.
 #
 # Output:
 #
@@ -19,23 +30,23 @@
 #
 # For the current NWAM one-HRU-per-GRU configuration:
 #
-#   GRU_ID     = MERIT COMID
+#   GRU_ID     = normalized source COMID
 #   HRU_ID     = consecutive integer 1...N
 #   HRU_area   = polygon area [m2]
 #   area       = HRU_area
 #   center_lat = HRU centroid latitude
 #   center_lon = HRU centroid longitude
-#   hru_to_seg = MERIT COMID
+#   hru_to_seg = normalized source COMID
 #
 # Area calculation
 # ----------------
 # Areas are calculated using EPSG:6933, a global equal-area CRS.
 # This is preferable to using a single UTM zone because NWAM will
-# process large Pfafstetter domains that may span multiple UTM zones.
+# process large domains that may span multiple UTM zones.
 #
 # CRS handling
 # ------------
-# MERIT Pfaf basin shapefiles may not contain a .prj file. If the CRS
+# Source basin shapefiles may not contain a .prj file. If the CRS
 # is missing, this script checks whether the coordinates are plausible
 # longitude/latitude values and, if so, explicitly assigns EPSG:4326.
 #
@@ -49,6 +60,7 @@ from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 
 
 # ============================================================
@@ -140,6 +152,128 @@ def get_domain_root():
     return (
         root_path
         / f"domain_{domain_name}"
+    )
+
+
+# ============================================================
+# ID NORMALIZATION
+# ============================================================
+
+ID_TOLERANCE = 1.0e-6
+
+
+def normalize_basin_ids(
+    values,
+    field_name
+):
+    """
+    Convert source basin IDs to the integer representation used
+    throughout CWARHM / SUMMA / mizuRoute.
+
+    Existing integer IDs remain unchanged:
+
+        72032368 -> 72032368
+
+    Fractional CAMELS-SPAT split-reach IDs on the verified
+    0.1-ID grid are mapped as:
+
+        72032368.1 -> 720323681
+        72032368.2 -> 720323682
+
+    Any unexpected fractional value that is not on the 0.1 grid
+    causes the workflow to stop rather than being silently truncated.
+    """
+
+    numeric = pd.to_numeric(
+        values,
+        errors="raise"
+    ).to_numpy(
+        dtype=np.float64
+    )
+
+
+    if not np.all(
+        np.isfinite(
+            numeric
+        )
+    ):
+
+        raise RuntimeError(
+            f"{field_name} contains non-finite values."
+        )
+
+
+    normalized = np.empty(
+        len(numeric),
+        dtype=np.int64
+    )
+
+
+    fractional_count = 0
+
+
+    for index, value in enumerate(
+        numeric
+    ):
+
+        nearest_integer = round(
+            value
+        )
+
+
+        # Existing integer IDs remain unchanged.
+        if np.isclose(
+            value,
+            nearest_integer,
+            atol=ID_TOLERANCE,
+            rtol=0.0
+        ):
+
+            normalized[index] = int(
+                nearest_integer
+            )
+
+            continue
+
+
+        # CAMELS-SPAT fractional IDs must be on the verified
+        # one-decimal-place grid.
+        scaled = (
+            value * 10.0
+        )
+
+        nearest_scaled_integer = round(
+            scaled
+        )
+
+
+        if not np.isclose(
+            scaled,
+            nearest_scaled_integer,
+            atol=ID_TOLERANCE,
+            rtol=0.0
+        ):
+
+            raise RuntimeError(
+                f"{field_name} contains a fractional ID "
+                "that is not on the supported 0.1 grid:\n"
+                f"{value}\n\n"
+                "Expected either an integer ID or a "
+                "CAMELS-SPAT split-reach ID such as "
+                "12345.1, 12345.2, etc."
+            )
+
+
+        normalized[index] = int(
+            nearest_scaled_integer
+        )
+
+        fractional_count += 1
+
+
+    return (
+        normalized,
+        fractional_count
     )
 
 
@@ -317,7 +451,7 @@ print(gdf.columns.tolist())
 
 
 # ============================================================
-# CHECK BASIN ID
+# CHECK / NORMALIZE BASIN ID
 # ============================================================
 
 if basin_hruid not in gdf.columns:
@@ -337,16 +471,25 @@ if gdf[basin_hruid].isna().any():
 
 try:
 
-    basin_ids = (
-        gdf[basin_hruid]
-        .astype(np.int64)
+    (
+        basin_id_values,
+        fractional_basin_count
+    ) = normalize_basin_ids(
+        gdf[basin_hruid],
+        basin_hruid
+    )
+
+    basin_ids = pd.Series(
+        basin_id_values,
+        index=gdf.index,
+        dtype=np.int64
     )
 
 except Exception as exc:
 
     raise RuntimeError(
         f"{basin_hruid} could not be converted "
-        "to integer IDs."
+        "to valid integer basin IDs."
     ) from exc
 
 
@@ -364,13 +507,22 @@ if basin_ids.duplicated().any():
     )
 
     raise RuntimeError(
-        "Duplicate basin IDs found:\n"
+        "Duplicate basin IDs found after "
+        "ID normalization:\n"
         f"{duplicates}"
     )
 
 
 gdf[basin_hruid] = (
     basin_ids.values
+)
+
+
+print()
+print("Basin ID normalization:")
+print(
+    f"  Fractional {basin_hruid} mapped : "
+    f"{fractional_basin_count}"
 )
 
 
@@ -522,7 +674,7 @@ gdf[catchment_hruid] = (
 
 # EPSG:6933 is a global equal-area CRS and is more suitable
 # for large NWAM domains than selecting one UTM zone for an
-# entire Pfafstetter basin.
+# entire basin.
 AREA_CRS = "EPSG:6933"
 
 
@@ -548,7 +700,9 @@ areas_m2 = (
 
 
 if not np.all(
-    np.isfinite(areas_m2)
+    np.isfinite(
+        areas_m2
+    )
 ):
 
     raise RuntimeError(
@@ -641,10 +795,8 @@ if not np.all(
 # CONNECT ROUTING BASIN TO RIVER SEGMENT
 # ============================================================
 
-# Current NWAM/MERIT design:
-#
-# Each routing basin corresponds to the river reach having
-# the same MERIT COMID.
+# Each routing basin corresponds to the river reach having the
+# same normalized source COMID.
 
 gdf[basin_to_seg] = (
     basin_ids.values
@@ -687,7 +839,7 @@ if not np.array_equal(
 ):
 
     raise RuntimeError(
-        "GRU IDs do not match routing-basin IDs."
+        "GRU IDs do not match normalized routing-basin IDs."
     )
 
 
@@ -699,7 +851,8 @@ if not np.array_equal(
 ):
 
     raise RuntimeError(
-        "hru_to_seg does not match the routing COMID."
+        "hru_to_seg does not match the normalized "
+        "routing COMID."
     )
 
 
@@ -745,6 +898,7 @@ print(
     f"{areas_m2.sum() / 1.0e6:.3f}"
 )
 
+
 # ============================================================
 # CREATE OUTPUT DIRECTORY
 # ============================================================
@@ -758,16 +912,6 @@ OUTPUT_DIR.mkdir(
 # ============================================================
 # ENSURE FINAL OUTPUT CRS
 # ============================================================
-
-# All downstream CWARHM / EASYMORE operations expect the
-# prepared catchment shapefile to have an explicitly defined
-# geographic CRS.
-#
-# The original MERIT shapefile may have no .prj file. That is
-# acceptable because it is treated as a read-only source.
-#
-# The prepared CWARHM copy MUST, however, permanently contain
-# EPSG:4326.
 
 if gdf.crs is None:
 
@@ -795,10 +939,7 @@ if gdf.crs.to_epsg() != 4326:
 # ============================================================
 
 # Remove only an existing CWARHM working copy.
-# The original MERIT source is never touched.
-#
-# This prevents stale .shp/.dbf/.shx/.prj components from an
-# interrupted previous run being mixed with the new output.
+# The original source is never touched.
 
 shapefile_extensions = [
     ".shp",
@@ -962,6 +1103,28 @@ if missing_output_fields:
 
 
 # ------------------------------------------------------------
+# Basin IDs
+# ------------------------------------------------------------
+
+saved_basin_ids = (
+    check[basin_hruid]
+    .astype(np.int64)
+    .to_numpy()
+)
+
+
+if not np.array_equal(
+    saved_basin_ids,
+    basin_ids.to_numpy()
+):
+
+    raise RuntimeError(
+        "Saved routing-basin IDs do not match "
+        "the normalized source IDs."
+    )
+
+
+# ------------------------------------------------------------
 # HRU IDs
 # ------------------------------------------------------------
 
@@ -999,7 +1162,7 @@ if not np.array_equal(
 ):
 
     raise RuntimeError(
-        "Saved GRU IDs do not match MERIT COMIDs."
+        "Saved GRU IDs do not match normalized COMIDs."
     )
 
 
@@ -1021,7 +1184,7 @@ if not np.array_equal(
 
     raise RuntimeError(
         "Saved hru_to_seg values do not match "
-        "MERIT COMIDs."
+        "normalized COMIDs."
     )
 
 
@@ -1063,6 +1226,7 @@ saved_lon = (
     .astype(float)
     .to_numpy()
 )
+
 
 saved_lat = (
     check[catchment_lat]
@@ -1123,42 +1287,47 @@ print("CATCHMENT PREPARATION COMPLETE")
 print("=" * 70)
 
 print(
-    f"HRUs / GRUs        : {len(check)}"
+    f"HRUs / GRUs             : {len(check)}"
 )
 
 print(
-    f"HRU IDs            : "
+    f"HRU IDs                 : "
     f"1 - {len(check)}"
 )
 
 print(
-    f"Area CRS            : "
+    f"Fractional COMIDs mapped: "
+    f"{fractional_basin_count}"
+)
+
+print(
+    f"Area CRS                 : "
     f"{AREA_CRS}"
 )
 
 print(
-    f"Output CRS          : "
+    f"Output CRS               : "
     f"{check.crs}"
 )
 
 print(
-    f"Output EPSG         : "
+    f"Output EPSG              : "
     f"{saved_epsg}"
 )
 
 print(
-    f"PRJ file            : "
+    f"PRJ file                 : "
     f"{OUTPUT_FILE.with_suffix('.prj')}"
 )
 
 print(
-    f"Total area [km2]    : "
+    f"Total area [km2]         : "
     f"{saved_areas.sum() / 1.0e6:.3f}"
 )
 
 print()
 print(
-    "MASTER MERIT SOURCE REMAINS UNCHANGED:"
+    "SOURCE SHAPEFILE REMAINS UNCHANGED:"
 )
 
 print(

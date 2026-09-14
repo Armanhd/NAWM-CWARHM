@@ -23,6 +23,19 @@
 #   hruToSegId  : segment receiving runoff from each HRU
 #   area        : routing-HRU area [m2]
 #
+# ID handling
+# -----------
+# Existing integer IDs are retained unchanged.
+#
+# Fractional CAMELS-SPAT split-reach IDs are mapped using:
+#
+#   72032368   -> 72032368
+#   72032368.1 -> 720323681
+#   72032368.2 -> 720323682
+#
+# Fractional IDs are accepted only when they lie on the verified
+# 0.1 grid. This prevents silent truncation of split-reach IDs.
+#
 # Outlet handling
 # ---------------
 # There are two possible outlet types.
@@ -54,7 +67,7 @@
 #   domain_<name>/shapefiles/river_network/
 #   domain_<name>/shapefiles/catchment/
 #
-# It does not modify the original MERIT source shapefiles.
+# It does not modify the original source shapefiles.
 #
 # This script does NOT read, create, or modify control_active.txt.
 #
@@ -73,6 +86,13 @@ import geopandas as gpd
 import netCDF4 as nc4
 import numpy as np
 import pandas as pd
+
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+ID_TOLERANCE = 1.0e-6
 
 
 # ============================================================
@@ -117,14 +137,6 @@ SCRIPT_DIR = Path(
     __file__
 ).resolve().parent
 
-
-# Script location:
-#
-# CWARHM_multibasin/
-#   5_model_input/
-#     mizuRoute/
-#       1b_network_topology_file/
-#         1_create_network_topology_file.py
 
 CWARHM_ROOT = (
     SCRIPT_DIR.parents[2]
@@ -266,6 +278,131 @@ def validate_int32(
 
 
 # ============================================================
+# ID NORMALIZATION
+# ============================================================
+
+def normalize_ids(
+    values,
+    field_name
+):
+    """
+    Convert integer or verified CAMELS-SPAT fractional IDs
+    to the integer representation used by CWARHM/mizuRoute.
+
+    Existing integer IDs remain unchanged.
+
+    Fractional split-reach IDs are mapped using:
+
+        round(ID * 10)
+
+    but only when the source value lies on the verified 0.1 grid.
+    """
+
+    numeric = pd.to_numeric(
+        values,
+        errors="raise"
+    ).to_numpy(
+        dtype=np.float64
+    )
+
+
+    if not np.all(
+        np.isfinite(
+            numeric
+        )
+    ):
+
+        raise RuntimeError(
+            f"{field_name} contains non-finite values."
+        )
+
+
+    normalized = np.empty(
+        len(numeric),
+        dtype=np.int64
+    )
+
+
+    fractional_count = 0
+
+
+    for index, value in enumerate(
+        numeric
+    ):
+
+        # Preserve outlet identifier zero.
+        if np.isclose(
+            value,
+            0.0,
+            atol=ID_TOLERANCE,
+            rtol=0.0
+        ):
+
+            normalized[index] = 0
+            continue
+
+
+        nearest_integer = round(
+            value
+        )
+
+
+        # Existing MERIT / CENTURY integer IDs are unchanged.
+        if np.isclose(
+            value,
+            nearest_integer,
+            atol=ID_TOLERANCE,
+            rtol=0.0
+        ):
+
+            normalized[index] = int(
+                nearest_integer
+            )
+
+            continue
+
+
+        # CAMELS-SPAT fractional split-reach IDs.
+        scaled = (
+            value * 10.0
+        )
+
+        nearest_scaled_integer = round(
+            scaled
+        )
+
+
+        if not np.isclose(
+            scaled,
+            nearest_scaled_integer,
+            atol=ID_TOLERANCE,
+            rtol=0.0
+        ):
+
+            raise RuntimeError(
+                f"{field_name} contains a fractional ID "
+                "that is not on the supported 0.1 grid:\n"
+                f"{value}\n\n"
+                "Expected an integer ID or a CAMELS-SPAT "
+                "split-reach ID such as 12345.1, "
+                "12345.2, etc."
+            )
+
+
+        normalized[index] = int(
+            nearest_scaled_integer
+        )
+
+        fractional_count += 1
+
+
+    return (
+        normalized,
+        fractional_count
+    )
+
+
+# ============================================================
 # DOMAIN
 # ============================================================
 
@@ -284,9 +421,6 @@ river_network_name = read_from_control(
     "river_network_shp_name"
 )
 
-
-# IMPORTANT:
-# Use Stage-00 prepared network rather than original MERIT source.
 
 river_network_path = make_default_path(
     "shapefiles/river_network"
@@ -332,9 +466,6 @@ river_basin_name = read_from_control(
     "river_basin_shp_name"
 )
 
-
-# Stage 00 places the prepared routing-basin representation in
-# the domain catchment directory.
 
 river_basin_path = make_default_path(
     "shapefiles/catchment"
@@ -508,23 +639,25 @@ if missing_basin_fields:
 
 try:
 
-    seg_ids = pd.to_numeric(
+    (
+        seg_ids,
+        fractional_seg_count
+    ) = normalize_ids(
         shp_river[
             river_seg_id
         ],
-        errors="raise"
-    ).to_numpy(
-        dtype=np.int64
+        river_seg_id
     )
 
 
-    original_down_seg_ids = pd.to_numeric(
+    (
+        original_down_seg_ids,
+        fractional_down_count
+    ) = normalize_ids(
         shp_river[
             river_down_seg_id
         ],
-        errors="raise"
-    ).to_numpy(
-        dtype=np.int64
+        river_down_seg_id
     )
 
 
@@ -563,13 +696,14 @@ try:
     )
 
 
-    hru_to_seg_ids = pd.to_numeric(
+    (
+        hru_to_seg_ids,
+        fractional_hru_to_seg_count
+    ) = normalize_ids(
         shp_basin[
             basin_hru_to_seg
         ],
-        errors="raise"
-    ).to_numpy(
-        dtype=np.int64
+        basin_hru_to_seg
     )
 
 
@@ -741,8 +875,6 @@ if not np.all(
     )
 
 
-# Retain historical CWARHM safety behavior.
-
 bad_lengths = (
     lengths <= 0
 )
@@ -810,12 +942,6 @@ segment_set = set(
 # ============================================================
 # NATURAL CLIPPED-DOMAIN OUTLETS
 # ============================================================
-
-# A MERIT segment may have a valid source NextDownID that is
-# outside this retained Pfaf/domain network.
-#
-# From the perspective of the current mizuRoute model domain,
-# such segments are outlets and must have downSegId = 0.
 
 external_downstream_mask = np.asarray(
     [
@@ -898,8 +1024,6 @@ else:
         ) from exc
 
 
-# Remove accidental duplicates while preserving order.
-
 requested_outlets = list(
     dict.fromkeys(
         requested_outlets
@@ -962,9 +1086,6 @@ for outlet_id in requested_outlets:
 # VALIDATE NETWORK CONNECTIVITY
 # ============================================================
 
-# After natural and explicit outlet handling, every remaining
-# non-zero downstream segment must exist within the domain.
-
 invalid_downstream = sorted(
     {
         int(value)
@@ -985,8 +1106,6 @@ if invalid_downstream:
         f"{invalid_downstream}"
     )
 
-
-# Detect self loops.
 
 self_loop_mask = (
     down_seg_ids
@@ -1013,9 +1132,6 @@ if np.any(
         f"{self_loop_segments}"
     )
 
-
-# Every routing HRU must map to a segment retained in the
-# topology.
 
 invalid_hru_links = sorted(
     {
@@ -1086,6 +1202,18 @@ print(
 
 print(
     f"Routing HRUs        : {num_hru}"
+)
+
+print(
+    f"Fractional seg IDs  : {fractional_seg_count}"
+)
+
+print(
+    f"Fractional down IDs : {fractional_down_count}"
+)
+
+print(
+    f"Fractional HRU links: {fractional_hru_to_seg_count}"
 )
 
 print(
@@ -1229,10 +1357,6 @@ with nc4.Dataset(
     now = datetime.now()
 
 
-    # --------------------------------------------------------
-    # Global attributes
-    # --------------------------------------------------------
-
     ncid.setncattr(
         "Author",
         "NWAM-SUMMA workflow"
@@ -1268,10 +1392,6 @@ with nc4.Dataset(
     )
 
 
-    # --------------------------------------------------------
-    # Dimensions
-    # --------------------------------------------------------
-
     ncid.createDimension(
         "seg",
         num_seg
@@ -1283,10 +1403,6 @@ with nc4.Dataset(
         num_hru
     )
 
-
-    # --------------------------------------------------------
-    # Segment variables
-    # --------------------------------------------------------
 
     create_and_fill_nc_var(
         ncid,
@@ -1339,10 +1455,6 @@ with nc4.Dataset(
         "m"
     )
 
-
-    # --------------------------------------------------------
-    # Routing-HRU variables
-    # --------------------------------------------------------
 
     create_and_fill_nc_var(
         ncid,
@@ -1587,8 +1699,6 @@ if not np.allclose(
     )
 
 
-# Final connectivity verification from written data.
-
 written_segment_set = set(
     written_seg_ids.tolist()
 )
@@ -1724,6 +1834,24 @@ with open(
 
 
     file.write(
+        f"Fractional segment IDs mapped: "
+        f"{fractional_seg_count}\n"
+    )
+
+
+    file.write(
+        f"Fractional downstream IDs mapped: "
+        f"{fractional_down_count}\n"
+    )
+
+
+    file.write(
+        f"Fractional HRU-to-segment IDs mapped: "
+        f"{fractional_hru_to_seg_count}\n"
+    )
+
+
+    file.write(
         f"Natural clipped outlets: "
         f"{natural_outlet_segments.tolist()}\n"
     )
@@ -1774,6 +1902,19 @@ print(
 
 print(
     f"Routing HRUs       : {num_hru}"
+)
+
+print(
+    f"Fractional seg IDs : {fractional_seg_count}"
+)
+
+print(
+    f"Fractional down IDs: {fractional_down_count}"
+)
+
+print(
+    f"Fractional HRU links: "
+    f"{fractional_hru_to_seg_count}"
 )
 
 print(

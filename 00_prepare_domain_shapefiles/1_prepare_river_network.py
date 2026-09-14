@@ -11,7 +11,18 @@
 #
 # IMPORTANT
 # ---------
-# The original MERIT source shapefile is NEVER overwritten.
+# The original source shapefile is NEVER overwritten.
+#
+# Integer river IDs are retained unchanged.
+#
+# Fractional CAMELS-SPAT split-reach IDs that lie exactly on the
+# verified 0.1 grid are converted to unique integer IDs:
+#
+#   72032368   -> 72032368
+#   72032368.1 -> 720323681
+#   72032368.2 -> 720323682
+#
+# The same rule is applied to COMID and NextDownID.
 #
 # Output:
 #
@@ -67,6 +78,7 @@ from shutil import copy2
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 
 
 # ============================================================
@@ -166,6 +178,130 @@ def get_domain_root():
     return (
         root_path
         / f"domain_{domain_name}"
+    )
+
+
+# ============================================================
+# ID NORMALIZATION
+# ============================================================
+
+ID_TOLERANCE = 1.0e-6
+
+
+def normalize_network_ids(
+    values,
+    field_name
+):
+    """
+    Convert source river-network IDs to the integer representation
+    required by the existing CWARHM / mizuRoute workflow.
+
+    Existing integer IDs are preserved exactly:
+
+        72032368 -> 72032368
+
+    Fractional split-reach IDs on the verified CAMELS-SPAT
+    0.1-ID grid are mapped using:
+
+        72032368.1 -> 720323681
+        72032368.2 -> 720323682
+
+    Zero remains zero.
+
+    Any fractional value that is not on the 0.1 grid causes the
+    workflow to stop instead of being silently truncated.
+    """
+
+    numeric = pd.to_numeric(
+        values,
+        errors="raise"
+    ).to_numpy(
+        dtype=np.float64
+    )
+
+
+    if not np.all(
+        np.isfinite(
+            numeric
+        )
+    ):
+
+        raise RuntimeError(
+            f"{field_name} contains non-finite values."
+        )
+
+
+    normalized = np.empty(
+        len(numeric),
+        dtype=np.int64
+    )
+
+
+    fractional_count = 0
+
+
+    for index, value in enumerate(
+        numeric
+    ):
+
+        nearest_integer = round(
+            value
+        )
+
+
+        # Existing integer IDs remain unchanged.
+        if np.isclose(
+            value,
+            nearest_integer,
+            atol=ID_TOLERANCE,
+            rtol=0.0
+        ):
+
+            normalized[index] = int(
+                nearest_integer
+            )
+
+            continue
+
+
+        # Fractional CAMELS-SPAT IDs must lie on the verified
+        # one-decimal-place grid.
+        scaled = (
+            value * 10.0
+        )
+
+        nearest_scaled_integer = round(
+            scaled
+        )
+
+
+        if not np.isclose(
+            scaled,
+            nearest_scaled_integer,
+            atol=ID_TOLERANCE,
+            rtol=0.0
+        ):
+
+            raise RuntimeError(
+                f"{field_name} contains a fractional ID "
+                "that is not on the supported 0.1 grid:\n"
+                f"{value}\n\n"
+                "Expected either an integer ID or a "
+                "CAMELS-SPAT split-reach ID such as "
+                "12345.1, 12345.2, etc."
+            )
+
+
+        normalized[index] = int(
+            nearest_scaled_integer
+        )
+
+        fractional_count += 1
+
+
+    return (
+        normalized,
+        fractional_count
     )
 
 
@@ -500,16 +636,25 @@ if gdf[river_seg_id].isna().any():
 
 try:
 
-    segment_ids = (
-        gdf[river_seg_id]
-        .astype(np.int64)
+    (
+        segment_id_values,
+        fractional_segment_count
+    ) = normalize_network_ids(
+        gdf[river_seg_id],
+        river_seg_id
+    )
+
+    segment_ids = pd.Series(
+        segment_id_values,
+        index=gdf.index,
+        dtype=np.int64
     )
 
 except Exception as exc:
 
     raise RuntimeError(
         f"{river_seg_id} could not be converted "
-        "to integer segment IDs."
+        "to valid integer segment IDs."
     ) from exc
 
 
@@ -527,7 +672,8 @@ if segment_ids.duplicated().any():
     )
 
     raise RuntimeError(
-        "Duplicate river segment IDs found:\n"
+        "Duplicate river segment IDs found after "
+        "ID normalization:\n"
         f"{duplicates}"
     )
 
@@ -550,21 +696,43 @@ if gdf[river_down_seg_id].isna().any():
 
 try:
 
-    down_ids = (
-        gdf[river_down_seg_id]
-        .astype(np.int64)
+    (
+        down_id_values,
+        fractional_downstream_count
+    ) = normalize_network_ids(
+        gdf[river_down_seg_id],
+        river_down_seg_id
+    )
+
+    down_ids = pd.Series(
+        down_id_values,
+        index=gdf.index,
+        dtype=np.int64
     )
 
 except Exception as exc:
 
     raise RuntimeError(
         f"{river_down_seg_id} could not be converted "
-        "to integer downstream IDs."
+        "to valid integer downstream IDs."
     ) from exc
 
 
 gdf[river_down_seg_id] = (
     down_ids.values
+)
+
+
+print()
+print("River ID normalization:")
+print(
+    f"  Fractional {river_seg_id} mapped     : "
+    f"{fractional_segment_count}"
+)
+
+print(
+    f"  Fractional {river_down_seg_id} mapped : "
+    f"{fractional_downstream_count}"
 )
 
 
@@ -873,7 +1041,7 @@ OUTPUT_DIR.mkdir(
 # ============================================================
 
 # Remove only the existing CWARHM prepared copy.
-# The original MERIT source is never touched.
+# The original source is never touched.
 
 shapefile_extensions = [
     ".shp",
@@ -1036,7 +1204,8 @@ if not np.array_equal(
 ):
 
     raise RuntimeError(
-        "Saved segment IDs differ from the source."
+        "Saved segment IDs differ from the "
+        "prepared integer segment IDs."
     )
 
 
@@ -1057,7 +1226,8 @@ if not np.array_equal(
 ):
 
     raise RuntimeError(
-        "Saved downstream IDs differ from the source."
+        "Saved downstream IDs differ from the "
+        "prepared integer downstream IDs."
     )
 
 
@@ -1201,6 +1371,16 @@ with open(
     )
 
     file.write(
+        f"Fractional segment IDs mapped: "
+        f"{fractional_segment_count}\n"
+    )
+
+    file.write(
+        f"Fractional downstream IDs mapped: "
+        f"{fractional_downstream_count}\n"
+    )
+
+    file.write(
         f"Length source: {river_length_source} [km]\n"
     )
 
@@ -1243,6 +1423,16 @@ print(
 print(
     f"Output EPSG               : "
     f"{saved_epsg}"
+)
+
+print(
+    f"Fractional segment IDs    : "
+    f"{fractional_segment_count}"
+)
+
+print(
+    f"Fractional downstream IDs : "
+    f"{fractional_downstream_count}"
 )
 
 print(
@@ -1297,7 +1487,7 @@ if len(boundary_outlets) > 0:
     print()
     print(
         "Segments whose downstream segment lies "
-        "outside this Pfaf domain:"
+        "outside this domain:"
     )
 
     print(
@@ -1316,7 +1506,7 @@ if len(boundary_outlets) > 0:
 
 
 print()
-print("MASTER MERIT SOURCE REMAINS UNCHANGED:")
+print("SOURCE SHAPEFILE REMAINS UNCHANGED:")
 print(SOURCE_FILE)
 
 print()

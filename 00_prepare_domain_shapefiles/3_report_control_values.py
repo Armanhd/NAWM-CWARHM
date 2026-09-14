@@ -24,7 +24,7 @@ IMPORTANT
 This script:
 
     - does NOT use control_active.txt
-    - does NOT modify original MERIT source shapefiles
+    - does NOT modify original source shapefiles
     - only updates the explicitly supplied domain control file
     - creates a timestamped backup before modifying the control file
 
@@ -32,6 +32,21 @@ Prepared inputs are expected at:
 
     <root_path>/domain_<domain_name>/shapefiles/catchment/
     <root_path>/domain_<domain_name>/shapefiles/river_network/
+
+ID handling
+-----------
+Existing integer IDs are retained unchanged.
+
+If a fractional CAMELS-SPAT split-reach ID is encountered, it is
+mapped using the same verified rule as the Stage-00 preparation scripts:
+
+    72032368   -> 72032368
+    72032368.1 -> 720323681
+    72032368.2 -> 720323682
+
+Fractional IDs must lie exactly on the verified 0.1 grid. Unexpected
+fractional values cause the script to stop rather than being silently
+truncated.
 
 forcing_raw_space
 -----------------
@@ -51,7 +66,7 @@ additional grid-cell buffers later.
 
 Outlet handling
 ---------------
-Natural MERIT outlet:
+Natural outlet:
 
     NextDownID = 0
 
@@ -61,7 +76,7 @@ Boundary-cut outlet:
 
     NextDownID != 0
 
-but the downstream COMID is not present in the selected domain.
+but the downstream segment is not present in the selected domain.
 
 These segments are written to:
 
@@ -84,6 +99,7 @@ from shutil import copy2
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 
 
 # ============================================================
@@ -91,6 +107,8 @@ import numpy as np
 # ============================================================
 
 DOMAIN_BUFFER_DEGREES = 0.05
+
+ID_TOLERANCE = 1.0e-6
 
 
 # ============================================================
@@ -252,7 +270,6 @@ def update_control_setting(
                 )
 
 
-        # Preserve the existing key text before "|".
         key_text = left.rstrip()
 
         new_line = (
@@ -307,6 +324,133 @@ def get_domain_root():
     return (
         root_path
         / f"domain_{domain_name}"
+    )
+
+
+# ============================================================
+# ID NORMALIZATION
+# ============================================================
+
+def normalize_ids(
+    values,
+    field_name
+):
+    """
+    Convert integer or verified CAMELS-SPAT fractional IDs
+    to the integer representation used by CWARHM.
+
+    Existing integer IDs remain unchanged.
+
+    Fractional split-reach IDs are mapped using:
+
+        round(ID * 10)
+
+    but only when the source ID is exactly on the verified
+    0.1 grid.
+    """
+
+    numeric = pd.to_numeric(
+        values,
+        errors="raise"
+    ).to_numpy(
+        dtype=np.float64
+    )
+
+
+    if not np.all(
+        np.isfinite(
+            numeric
+        )
+    ):
+
+        raise RuntimeError(
+            f"{field_name} contains non-finite values."
+        )
+
+
+    normalized = np.empty(
+        len(numeric),
+        dtype=np.int64
+    )
+
+
+    fractional_count = 0
+
+
+    for index, value in enumerate(
+        numeric
+    ):
+
+        # Preserve outlet ID 0.
+        if np.isclose(
+            value,
+            0.0,
+            atol=ID_TOLERANCE,
+            rtol=0.0
+        ):
+
+            normalized[index] = 0
+            continue
+
+
+        nearest_integer = round(
+            value
+        )
+
+
+        # Existing integer IDs remain unchanged.
+        if np.isclose(
+            value,
+            nearest_integer,
+            atol=ID_TOLERANCE,
+            rtol=0.0
+        ):
+
+            normalized[index] = int(
+                nearest_integer
+            )
+
+            continue
+
+
+        # CAMELS-SPAT fractional IDs must lie exactly on the
+        # verified 0.1 grid.
+        scaled = (
+            value * 10.0
+        )
+
+        nearest_scaled_integer = round(
+            scaled
+        )
+
+
+        if not np.isclose(
+            scaled,
+            nearest_scaled_integer,
+            atol=ID_TOLERANCE,
+            rtol=0.0
+        ):
+
+            raise RuntimeError(
+                f"{field_name} contains a fractional ID "
+                "that is not on the supported 0.1 grid:\n"
+                f"{value}\n\n"
+                "Expected either an integer ID or a "
+                "CAMELS-SPAT split-reach ID such as "
+                "12345.1, 12345.2, etc."
+            )
+
+
+        normalized[index] = int(
+            nearest_scaled_integer
+        )
+
+        fractional_count += 1
+
+
+    return (
+        normalized,
+        fractional_count
     )
 
 
@@ -623,30 +767,47 @@ if river[
 
 try:
 
-    seg_ids = (
+    (
+        seg_id_values,
+        fractional_seg_count
+    ) = normalize_ids(
         river[
             river_seg_id
-        ]
-        .astype(
-            np.int64
-        )
+        ],
+        river_seg_id
     )
 
 
-    down_ids = (
+    (
+        down_id_values,
+        fractional_down_count
+    ) = normalize_ids(
         river[
             river_down_seg_id
-        ]
-        .astype(
-            np.int64
-        )
+        ],
+        river_down_seg_id
     )
+
+
+    seg_ids = pd.Series(
+        seg_id_values,
+        index=river.index,
+        dtype=np.int64
+    )
+
+
+    down_ids = pd.Series(
+        down_id_values,
+        index=river.index,
+        dtype=np.int64
+    )
+
 
 except Exception as exc:
 
     raise RuntimeError(
         "River segment/downstream IDs could not "
-        "be converted to integers."
+        "be converted to valid integer IDs."
     ) from exc
 
 
@@ -673,6 +834,19 @@ segment_set = set(
     seg_ids
     .astype(int)
     .tolist()
+)
+
+
+print()
+print("River ID normalization:")
+print(
+    f"  Fractional segment IDs mapped    : "
+    f"{fractional_seg_count}"
+)
+
+print(
+    f"  Fractional downstream IDs mapped : "
+    f"{fractional_down_count}"
 )
 
 
@@ -743,6 +917,43 @@ boundary_outlets = (
 )
 
 
+# Add normalized IDs for reporting/control generation.
+natural_outlets["_normalized_seg_id"] = (
+    seg_ids.loc[
+        natural_mask
+    ]
+    .astype(np.int64)
+    .values
+)
+
+
+natural_outlets["_normalized_down_id"] = (
+    down_ids.loc[
+        natural_mask
+    ]
+    .astype(np.int64)
+    .values
+)
+
+
+boundary_outlets["_normalized_seg_id"] = (
+    seg_ids.loc[
+        boundary_mask
+    ]
+    .astype(np.int64)
+    .values
+)
+
+
+boundary_outlets["_normalized_down_id"] = (
+    down_ids.loc[
+        boundary_mask
+    ]
+    .astype(np.int64)
+    .values
+)
+
+
 if (
     len(natural_outlets) == 0
     and len(boundary_outlets) == 0
@@ -771,7 +982,7 @@ else:
 
     boundary_ids = (
         boundary_outlets[
-            river_seg_id
+            "_normalized_seg_id"
         ]
         .astype(
             np.int64
@@ -925,7 +1136,7 @@ print(
 
 print()
 print("-" * 70)
-print("NATURAL MERIT OUTLETS")
+print("NATURAL OUTLETS")
 print("-" * 70)
 
 print(
@@ -980,6 +1191,20 @@ if len(
         )
     )
 
+    print()
+    print(
+        "Normalized boundary outlet IDs "
+        "written to control file:"
+    )
+
+    print(
+        boundary_outlets[
+            "_normalized_seg_id"
+        ]
+        .astype(int)
+        .tolist()
+    )
+
 
 # ============================================================
 # EXISTING CONTROL VALUES
@@ -1012,7 +1237,7 @@ backup_file = (
     CONTROL_FILE.parent
     / (
         f"{CONTROL_FILE.stem}_"
-        f"backup_{timestamp:%Y%m%d_%H%M%S}"
+        f"_backup_{timestamp:%Y%m%d_%H%M%S}"
         f"{CONTROL_FILE.suffix}"
     )
 )
@@ -1240,6 +1465,16 @@ with open(
 
     file.write(
         f"Segments: {len(river)}\n"
+    )
+
+    file.write(
+        f"Fractional segment IDs mapped: "
+        f"{fractional_seg_count}\n"
+    )
+
+    file.write(
+        f"Fractional downstream IDs mapped: "
+        f"{fractional_down_count}\n"
     )
 
     file.write(
