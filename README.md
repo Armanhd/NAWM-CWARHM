@@ -7,7 +7,11 @@ The workflow provides an automated framework for generating and executing SUMMAâ
 NAWM-CWARHM retains the fundamental CWARHM philosophy of separating model-agnostic data preparation from model-specific configuration, while adding the domain-generation, forcing-processing, batch-management, quality-control, and HPC infrastructure required for repeated multi-basin model production.
 
 The repository is based on the original CH-Earth/CWARHM workflow.
-
+> [!IMPORTANT]
+> **Active development branch:** `NAWM-multibasin`
+>
+> This branch contains the most up-to-date version of NAWM-CWARHM
+> and should be used for current workflows and development.
 ## Background
 
 CWARHM was developed as a reproducible framework for configuring large-domain hydrological models. The original implementation couples:
