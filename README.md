@@ -357,37 +357,6 @@ Separate runtime-generation utilities are available for distributed and lumped c
 
 Additional cold-state utilities are provided for experiments in which an existing/reference SUMMA initial state must be transferred to a newly generated configuration while preserving the physical state structure. These utilities are intended for controlled compatibility and reproducibility experiments rather than replacing the standard cold-state generation workflow.
 
-## Major differences from original CWARHM
-
-| Component | Original CWARHM | NAWM-CWARHM |
-|---|---|---|
-| Scientific architecture | Model-agnostic preparation followed by SUMMA/mizuRoute configuration | Retained |
-| Spatial scale | Local to global | Multi-basin North American production |
-| Spatial discretization | Supplied externally | Integrated domain-preparation stage |
-| Spatial representations | Application dependent | Parallel distributed and lumped configurations |
-| Domain configuration | Individual application controls | Inventory-driven automatic control generation |
-| Control generation | Primarily application-specific | Controls generated automatically from basin lists/inventories |
-| Domain inventories | Not central to workflow | MERIT/Pfaf, CENTURY, and extensible inventories |
-| Batch definition | Application-oriented | Reusable distributed/lumped basin and month task files |
-| Meteorological forcing | Primarily ERA5 | Combined ERA5 + EM-Earth workflow |
-| Precipitation selection | Application/code dependent | Control-file selectable precipitation product |
-| Bias-corrected precipitation | Not central to workflow | Alternative forcing generation using `prcp_corrected` |
-| Forcing processing | Application processing | Domain-month Slurm arrays |
-| Spatial forcing remapping | CWARHM remapping | Reusable EASYMORE weights + parallel monthly remapping |
-| Forcing assembly | Original CWARHM structure | Dedicated monthly SUMMA assembly stage |
-| Continuous forcing | Application dependent | Automated monthly forcing concatenation |
-| Forcing time basis | Application dependent | UTC product plus optional local standard time product |
-| DEM | MERIT-Hydro processing | Shared archive reuse + automated basin processing |
-| Soil/land cover | CWARHM processing | Automated multi-basin raster + HRU extraction |
-| SUMMA inputs | Generated per application | Automated distributed and lumped generation |
-| HRU identifiers | Application dependent | Standardized and explicitly validated |
-| Single-HRU domains | Not a primary production target | Explicitly supported through lumped workflow |
-| mizuRoute topology | User-supplied network basis | Automated MERIT-style topology construction and validation |
-| HPC processing | Supports scalable execution | Basin/month task architecture + Slurm arrays |
-| SUMMA outputs | Standard execution | Distributed execution + dedicated merge stage |
-| Verification | Workflow-dependent | Explicit checks throughout processing |
-| Primary objective | General reproducible model configuration | Automated and repeatable North American model production |
-
 ## Repository organization
 
 The main workflow directories are:
