@@ -419,7 +419,7 @@ This standardized organization allows the same processing and execution scripts 
 
 The README provides the conceptual overview and architecture of NAWM-CWARHM.
 
-Detailed operational instructions should be maintained separately in the repository as the workflow manual.
+Detailed operational instructions maintained separately in the repository as the workflow manual.
 
 The manual contains:
 
