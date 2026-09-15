@@ -236,7 +236,7 @@ The forcing workflow is organized into source preparation, spatial remapping, SU
 
 Raw ERA5 and EM-Earth archives are converted into standardized monthly files for each domain.
 
-For EM-Earth, the precipitation field is selected from the basin control file rather than being hard-coded in the processing script. The workflow can therefore be applied using either the standard precipitation product or an alternative such as bias-corrected precipitation without modifying the forcing code.
+For EM-Earth, the precipitation field is selected from the basin control file rather than being hard-coded in the processing script. The workflow can therefore be applied using either the raw precipitation product or an alternative bias-corrected precipitation without modifying the forcing code.
 
 ### 2. Spatial remapping
 
