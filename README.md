@@ -22,25 +22,20 @@ The purpose of NAWM-CWARHM is therefore not simply to increase the spatial scale
 Major additions include:
 
 - automated generation of basin-specific control files from domain inventories;
-- support for different domain inventories, including MERIT/Pfaf and CENTURY basins;
 - automated preparation of CWARHM-compatible domain shapefiles;
 - parallel generation of distributed and lumped basin configurations;
 - separate distributed and lumped processing directories within each model domain;
 - reusable basin-level and month-level task inventories for both configurations;
-- shared continental geospatial datasets;
-- combined ERA5 and EM-Earth meteorological forcing;
 - control-file selection of the EM-Earth precipitation product;
-- support for both standard and bias-corrected EM-Earth precipitation;
+- support for both raw and bias-corrected EM-Earth precipitation;
 - reusable EASYMORE spatial-remapping weights;
 - large Slurm-array forcing workflows;
 - concatenation of monthly SUMMA forcing into continuous forcing datasets;
 - UTC-to-local-standard-time (LST) conversion of forcing;
-- automated DEM, soil, and land-cover preprocessing;
-- automated HRU parameter extraction for distributed and lumped configurations;
 - multi-basin SUMMA and mizuRoute input generation;
 - LST-aware SUMMA runtime configuration;
 - support for domains containing a single HRU/river segment as well as large multi-HRU domains;
-- explicit handling and validation of MERIT river-network topology;
+- explicit handling and validation of river-network topology;
 - utilities for maintaining compatible SUMMA initial-state structures in controlled experiments;
 - systematic verification between workflow stages;
 - coordinated HPC execution of large collections of basins.
