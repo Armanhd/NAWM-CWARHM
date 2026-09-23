@@ -199,6 +199,13 @@ where the latter represents the bias-corrected precipitation product.
 
 This is particularly useful for controlled forcing experiments because the processing workflow remains unchanged while the precipitation source is explicitly recorded in the basin configuration.
 
+#### Known EM-Earth time gaps
+
+The hourly EM-Earth archive contains known seven-hour gaps on **1 January 1950** and **1 January 1979** (00:00–06:00 UTC). During source preparation, NAWM-CWARHM explicitly repairs these two gaps by setting precipitation to **0.0 mm h⁻¹** and assigning the **07:00 UTC temperature from the same day** to the seven missing hours. Existing valid values are not modified, and no interpolation is performed.
+
+This treatment applies only to these two documented gaps. Any other missing timestamps are treated as unexpected and cause the forcing-preparation task to fail.
+
+
 ## Domain preparation
 
 NAWM-CWARHM adds a new:
