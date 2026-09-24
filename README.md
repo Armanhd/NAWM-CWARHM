@@ -303,6 +303,16 @@ SUMMA file-manager and forcing-list generation includes corresponding LST-aware 
 
 This separation of source preparation, remapping, assembly, concatenation, and time conversion makes the forcing workflow restartable and allows failed domain-month tasks to be rerun independently.
 
+### 6. Post-processing archive
+
+After the distributed and lumped forcing workflows have been completed and verified, monthly intermediate forcing files can be archived to reduce the number of individual files retained on the HPC filesystem.
+
+For each completed basin, monthly NetCDF files from the distributed and lumped forcing-processing stages are collected into verified `monthly_netcdf.tar` archives. Workflow logs are similarly consolidated into `workflow_logs.zip`.
+
+Original monthly files are removed only after successful archive verification. The final concatenated UTC and LST forcing products are retained unchanged.
+
+The archive workflow uses the same active basin batch defined through `set_batch.sh` and the existing lumped basin task inventory, allowing the same procedure to operate on small test batches or large production collections without generating a separate archive task list.
+
 ## Distributed and lumped model configurations
 
 NAWM-CWARHM supports two spatial representations of a basin within the same model-domain hierarchy:
@@ -322,6 +332,7 @@ The workflow provides dedicated lumped versions of the major processing stages, 
 - ERA5 and EM-Earth remapping;
 - SUMMA forcing assembly;
 - UTC-to-LST conversion;
+- safe post-processing archival of monthly forcing and workflow logs after distributed and lumped model preparation;
 - SUMMA attributes generation;
 - file-manager and forcing-list generation;
 - SUMMA model-input generation.
@@ -379,7 +390,7 @@ The main workflow directories are:
 0_tools/                        Shared workflow utilities
 1_folder_prep/                  Domain directory creation
 2_install/                      Environment and model installation
-3a_forcing/                     Meteorological preparation, concatenation, and UTC→LST conversion
+3a_forcing/                     Meteorological preparation, concatenation, UTC→LST conversion, and archival
 3b_parameters/                  DEM, soil and land-cover preparation
 4a_sort_shape/                  Spatial preprocessing
 4b_remapping/                   Distributed/lumped HRU parameter and forcing remapping
@@ -447,6 +458,7 @@ The manual contains:
 - final SUMMA forcing assembly;
 - forcing concatenation;
 - UTC-to-LST conversion;
+- post-processing archival of monthly forcing and workflow logs;
 - DEM, soil, and MODIS preparation;
 - distributed and lumped HRU parameter extraction;
 - SUMMA and mizuRoute input generation;
