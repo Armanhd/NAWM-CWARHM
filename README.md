@@ -469,3 +469,18 @@ The manual contains:
 - output checks and acceptance criteria.
 
 Machine-specific ARC paths, example basin collections, test job IDs, Slurm limits, and detailed command sequences belong in the manual rather than in this README.
+
+
+## References
+
+Clark, M. P., Nijssen, B., Lundquist, J. D., Kavetski, D., Rupp, D. E., Woods, R. A., et al. (2015a). A unified approach for process-based hydrologic modeling: 1. Modeling concept. *Water Resources Research*, **51**, 2498–2514. https://doi.org/10.1002/2015WR017198
+
+Clark, M. P., Nijssen, B., Lundquist, J. D., Kavetski, D., Rupp, D. E., Woods, R. A., et al. (2015b). A unified approach for process-based hydrologic modeling: 2. Model implementation and case studies. *Water Resources Research*, **51**, 2515–2542. https://doi.org/10.1002/2015WR017200
+
+Knoben, W. J. M., Clark, M. P., Bales, J., Bennett, A., Gharari, S., Marsh, C. B., Nijssen, B., Pietroniro, A., Spiteri, R. J., Tang, G., Tarboton, D. G., & Wood, A. W. (2022). Community Workflows to Advance Reproducibility in Hydrologic Modeling: Separating model-agnostic and model-specific configuration steps in applications of large-domain hydrologic models. *Water Resources Research*, **58**, e2021WR031753. https://doi.org/10.1029/2021WR031753
+
+Lin, P., Pan, M., Beck, H. E., Yang, Y., Yamazaki, D., Frasson, R., et al. (2019). Global reconstruction of naturalized river flows at 2.94 million reaches. *Water Resources Research*, **55**, 6499–6516. https://doi.org/10.1029/2019WR025287
+
+Mizukami, N., Clark, M. P., Sampson, K., Nijssen, B., Mao, Y., McMillan, H., et al. (2016). mizuRoute version 1: A river network routing tool for a continental domain water resources applications. *Geoscientific Model Development*, **9**, 2223–2238. https://doi.org/10.5194/gmd-9-2223-2016
+
+Yamazaki, D., Ikeshima, D., Sosa, J., Bates, P. D., Allen, G. H., & Pavelsky, T. M. (2019). MERIT Hydro: A high-resolution global hydrography map based on latest topography dataset. *Water Resources Research*, **55**, 5053–5073. https://doi.org/10.1029/2019WR024873
