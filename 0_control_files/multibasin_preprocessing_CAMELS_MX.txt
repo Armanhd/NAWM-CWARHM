@@ -1,0 +1,17 @@
+/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_CAMELS_SPAT_MX/0_control_files/control_MX_1023.txt
+/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_CAMELS_SPAT_MX/0_control_files/control_MX_11028.txt
+/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_CAMELS_SPAT_MX/0_control_files/control_MX_11042.txt
+/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_CAMELS_SPAT_MX/0_control_files/control_MX_18323.txt
+/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_CAMELS_SPAT_MX/0_control_files/control_MX_20037.txt
+/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_CAMELS_SPAT_MX/0_control_files/control_MX_22008.txt
+/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_CAMELS_SPAT_MX/0_control_files/control_MX_22026.txt
+/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_CAMELS_SPAT_MX/0_control_files/control_MX_23003.txt
+/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_CAMELS_SPAT_MX/0_control_files/control_MX_25037.txt
+/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_CAMELS_SPAT_MX/0_control_files/control_MX_25043.txt
+/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_CAMELS_SPAT_MX/0_control_files/control_MX_26151.txt
+/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_CAMELS_SPAT_MX/0_control_files/control_MX_26282.txt
+/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_CAMELS_SPAT_MX/0_control_files/control_MX_26337.txt
+/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_CAMELS_SPAT_MX/0_control_files/control_MX_27006.txt
+/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_CAMELS_SPAT_MX/0_control_files/control_MX_30066.txt
+/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_CAMELS_SPAT_MX/0_control_files/control_MX_3008.txt
+/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_CAMELS_SPAT_MX/0_control_files/control_MX_30181.txt

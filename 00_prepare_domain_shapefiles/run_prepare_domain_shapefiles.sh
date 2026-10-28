@@ -50,9 +50,8 @@ set -euo pipefail
 # PATHS
 # ============================================================
 
-CWARHM="/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin"
-
-SCRIPT_DIR="${CWARHM}/00_prepare_domain_shapefiles"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CWARHM="$(dirname "${SCRIPT_DIR}")"
 
 RIVER_SCRIPT="${SCRIPT_DIR}/1_prepare_river_network.py"
 CATCHMENT_SCRIPT="${SCRIPT_DIR}/2_prepare_catchment.py"
