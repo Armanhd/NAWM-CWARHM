@@ -7,11 +7,83 @@ The workflow provides an automated framework for generating and executing SUMMA�
 NAWM-CWARHM retains the fundamental CWARHM philosophy of separating model-agnostic data preparation from model-specific configuration, while adding the domain-generation, forcing-processing, batch-management, quality-control, and HPC infrastructure required for repeated multi-basin model production.
 
 The repository is based on the original CH-Earth/CWARHM workflow.
+
 > [!IMPORTANT]
-> **Active development branch:** `NAWM-multibasin`
+> **This branch: `CAMELS_SPAT_MX` — CAMELS-MX demonstration and development.**
 >
-> This branch contains the most up-to-date version of NAWM-CWARHM
-> and should be used for current workflows and development.
+> This branch provides an initial example of adapting NAWM-CWARHM to a set of **21 CAMELS-MX basins**. It is **not a completed, validated 21-basin modelling product**. The broader NAWM-CWARHM development work continues separately on `NAWM-multibasin`.
+>
+> The workflow, input datasets, and processing choices in this demonstration **will be reviewed and updated in future**, depending on the data selected for each stage of the workflow.
+
+## CAMELS-MX demonstration (`CAMELS_SPAT_MX` branch)
+
+### Purpose and scope
+
+This branch is a **demonstration of how the existing NAWM-CWARHM multibasin workflow can be configured for CAMELS-MX**, using an initial inventory of 21 Mexican basins. It supports collaborator testing and iterative development; it should not be treated as a final production workflow or a fixed prescription of datasets for Mexico.
+
+The current example uses:
+
+- **Basin delineation and river network:** existing TDX-Hydro-derived CAMELS-MX catchment and river-network shapefiles (clipped basin exports).
+- **Elevation/terrain preparation:** the existing **MERIT Hydro DEM** workflow; the TDX-derived hydrofabric does not imply that TDX elevation is used for parameter extraction.
+- **Meteorological forcing configuration:** shared ERA5 and EM-Earth sources, with `forcing_emearth_precip | prcp` for this demonstration.
+- **Soil and land cover:** the existing shared soil-class and MODIS MCD12Q1 configurations carried over from NAWM-CWARHM.
+- **Model configurations:** both distributed and single-HRU lumped SUMMA configurations, with mizuRoute routing supported by the existing scripts.
+
+These are **initial demonstration choices**, not permanent decisions. Forcing, DEM, land-cover, soil, hydrofabric and other model inputs may change independently as the project evaluates available datasets and requirements. Changes should be documented in the relevant controls, inventory, and workflow manuals.
+
+### Differences from the general NAWM-CWARHM workflow
+
+| Aspect | CAMELS-MX demonstration |
+| --- | --- |
+| Basin selection | `MX_` basin IDs from `CAMELS_MX_control_file_inputs.csv` (21 listed) |
+| Available inputs | 17 basins currently have the expected TDX clipped shapefile exports |
+| Spatial input | TDX-Hydro-derived catchment and river-network shapefiles instead of the earlier Canadian/CENTURY example sources |
+| Elevation | MERIT Hydro DEM processing retained |
+| Control-file template | `0_control_files/control_CAMELS_MX_template.txt` |
+| Output data root on ARC | `/work/comphyd_lab/share/Data_CAMELS_MX` |
+| River length mapping | `lengthkm` (km) to `length_m` (m) |
+| Routing basin topology | Uses Stage-00 **prepared catchment** shapefile with `COMID`, `area` (m²), and `hru_to_seg` |
+| SUMMA–mizuRoute remapping | Configured `river_basin_needs_remap | no` for the initial one-GRU-per-segment representation; verify actual ID alignment for each basin |
+| Scripts | Reuse existing Python workflows; the Stage-00 shell runner was adjusted to resolve paths relative to this checkout rather than the original repository |
+
+The original source shapefiles are treated as read-only. Stage 00 writes prepared river-network and catchment shapefiles to each domain's output directory. The topology generator subsequently reads those prepared shapefiles, rather than depending on the original TDX `river_basins` attribute schema.
+
+### Files included in this branch
+
+```text
+0_control_files/
+  CAMELS_MX_control_file_inputs.csv             # Original 21-basin inventory
+  CAMELS_MX_control_file_inputs_available.csv   # 17 basins with source directories available
+  control_CAMELS_MX_template.txt                # Distributed control template
+  control_MX_<ID>.txt                           # 17 distributed controls
+  control_MX_<ID>_lumped.txt                    # 17 lumped controls
+  multibasin_preprocessing_CAMELS_MX.txt        # Distributed basin task list
+  lumped_multibasin_preprocessing_CAMELS_MX.txt # Lumped basin task list
+```
+
+Lumped controls are **derived from the distributed controls** with `00_prepare_domain_shapefiles/0_generate_lumped_multibasin_control_files.py`; a separate hand-edited lumped template is not required. They inherit the distributed precipitation selection and establish paths under `domain_MX_<ID>/lumped/`.
+
+The two committed task files contain **absolute ARC paths to the checkout used to generate them**. If the repository is cloned elsewhere, these task files must be regenerated or their paths updated before execution. Model outputs and source geospatial data are held outside Git and are not included in this repository.
+
+### Current verification status (28 October 2026)
+
+- **21 basins** are recorded in the full CAMELS-MX inventory.
+- **17 basins** had the expected TDX clipped shapefile source directories and have distributed and lumped control files generated.
+- **4 basins** do not yet have the expected `cwarhm_exports/tdx_clipped/shapefiles` directories: `MX_10113`, `MX_12428`, `MX_12496`, and `MX_12532`.
+- `MX_1023` **passed distributed Stage 00**: 193 river segments and 193 catchments/GRUs were prepared, and the control was updated from the prepared domain geometry. Its source shapefiles were not modified.
+- The distributed control generator was successfully applied to the 17 available basins; the lumped-control generator's 17-basin dry-run passed and the 17 lumped controls and task list were created.
+- **Not yet established:** distributed Stage 00 success for the other 16 basins; lumped catchment preparation; parameter/forcing completion; topology and model-input generation across all basins; successful SUMMA–mizuRoute simulations or scientific validation.
+
+This status intentionally distinguishes **control-file generation** from actual completion and verification of data-processing and model-execution stages.
+
+### Continuing the demonstration
+
+A collaborator can use the provided basin task lists and control files to continue distributed Stage 00 preparation, then prepare the lumped catchments and proceed through forcing, parameter, and model-input stages using the corresponding workflow manuals. Validate each stage before extending to further basins. In particular, confirm the routing IDs, outlet connectivity, HRU-area units, and compatibility of the source data with the selected processing scripts.
+
+The current reporter recalculates `forcing_raw_space` with a **0.05° buffer** during Stage 00, replacing the control generator's initial **0.25° buffer**. This is an existing workflow behavior that should be considered when choosing forcing-grid coverage.
+
+As input datasets and processing methods are decided, **update this branch and the operational manuals**. The commands and settings documented here represent a working demonstration configuration, not a guarantee that all downstream steps require no adaptation.
+
 ## Background
 
 CWARHM was developed as a reproducible framework for configuring large-domain hydrological models. The original implementation couples:
@@ -404,16 +476,15 @@ The detailed contents and exact execution sequence are described in the NAWM-CWA
 
 ## Typical model-domain structure
 
-Processed domains maintain distributed and lumped model products separately within the same basin hierarchy:
+Processed domains maintain distributed products directly under the domain root and lumped products in a separate `lumped/` subdirectory:
 
 ```text
 domain_<DOMAIN>/
-├── distributed/
-│   ├── forcing/
-│   ├── parameters/
-│   ├── shapefiles/
-│   ├── settings/
-│   └── simulations/
+├── forcing/           # Distributed products
+├── parameters/        # Distributed products
+├── shapefiles/        # Distributed products
+├── settings/          # Distributed products
+├── simulations/       # Distributed products
 └── lumped/
     ├── forcing/
     ├── parameters/
