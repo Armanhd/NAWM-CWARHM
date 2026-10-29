@@ -204,7 +204,35 @@ fi
 #
 # MODIS_YEARS=(2020 2021 2022)
 
-MODIS_YEARS=(2022)
+# ============================================================
+# MODIS YEARS FROM CONTROL FILE
+# ============================================================
+
+LAND_YEARS=$(read_control "parameter_land_years")
+
+if [[ "$LAND_YEARS" =~ ^[0-9]{4}$ ]]; then
+
+    MODIS_YEARS=("$LAND_YEARS")
+
+elif [[ "$LAND_YEARS" =~ ^([0-9]{4})-([0-9]{4})$ ]]; then
+
+    START_YEAR=${BASH_REMATCH[1]}
+    END_YEAR=${BASH_REMATCH[2]}
+
+    if (( 10#$START_YEAR > 10#$END_YEAR )); then
+        echo "ERROR: Invalid MODIS year range: $LAND_YEARS" >&2
+        exit 1
+    fi
+
+    MODIS_YEARS=($(seq "$START_YEAR" "$END_YEAR"))
+
+else
+
+    echo "ERROR: Invalid parameter_land_years: $LAND_YEARS" >&2
+    echo "Expected YYYY or YYYY-YYYY" >&2
+    exit 1
+
+fi
 
 
 # ============================================================
@@ -254,15 +282,27 @@ for YEAR in "${MODIS_YEARS[@]}"; do
 
 
     # --------------------------------------------------------
-    # FIND HDF FILES
+    # FIND HDF FILES FOR SELECTED YEAR
     # --------------------------------------------------------
 
-    find "$source_path" \
+    YEAR_SOURCE="${source_path}/${YEAR}.01.01"
+
+    if [ ! -d "$YEAR_SOURCE" ]; then
+
+        echo "ERROR: MODIS annual directory not found:"
+        echo "$YEAR_SOURCE"
+
+        exit 1
+
+    fi
+
+    find "$YEAR_SOURCE" \
         -maxdepth 1 \
         -type f \
         -name "MCD12Q1.A${YEAR}*.hdf" \
         | sort \
         > "$OUTTXT"
+
 
 
     FILE_COUNT=$(wc -l < "$OUTTXT")

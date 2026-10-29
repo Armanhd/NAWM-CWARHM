@@ -31,6 +31,7 @@ Major additions include:
 - separate distributed and lumped processing directories within each model domain;
 - reusable basin-level and month-level task inventories for both configurations;
 - control-file selection of the EM-Earth precipitation product;
+- control-file selection of single-year or multiyear MODIS land cover;
 - support for both raw and bias-corrected EM-Earth precipitation;
 - reusable EASYMORE spatial-remapping weights;
 - large Slurm-array forcing workflows;
@@ -169,6 +170,8 @@ control_<DOMAIN>_lumped.txt
 
 The lumped controls retain the relevant forcing, source-data, and model settings from the distributed configuration while directing outputs to the lumped subdirectories of the same model domain.
 
+The basin control files also specify the MODIS land-cover year or year range through `parameter_land_years`, allowing the same processing code to use a single annual IGBP classification or calculate a multiyear temporal mode.
+
 This provides the configuration hierarchy:
 
 ```text
@@ -237,6 +240,36 @@ The workflow can additionally derive a lumped representation of each basin. Dist
 
 This makes spatial-domain preparation part of the reproducible workflow rather than an external GIS prerequisite and provides a consistent basis for comparing distributed and lumped model configurations.
 
+## MODIS land-cover year selection
+
+NAWM-CWARHM supports two configurable methods for preparing land cover from the MODIS MCD12Q1 Collection 6.1 International Geosphere–Biosphere Programme (IGBP) classification. The selection is made in each basin control file, under **Parameter settings - MODIS land cover**, using `parameter_land_years`.
+
+**Option 1 — Single-year land cover**
+
+```text
+parameter_land_years | 2022
+```
+
+The workflow uses the selected year's IGBP land-cover class at each raster pixel, without temporal aggregation. Any available year in the source archive may be selected.
+
+**Option 2 — Multiyear representative land cover**
+
+```text
+parameter_land_years | 2001-2022
+```
+
+The workflow processes every year in the inclusive range and assigns each raster pixel its **most frequently occurring valid IGBP class** over the selected period (temporal mode). NoData observations are excluded; where two or more classes have equal maximum frequency, the lowest numerical class is selected. Pixels without valid observations retain NoData.
+
+The selected years are used throughout the existing MODIS preprocessing sequence: annual VRT mosaics, reprojection, domain cropping, multiband VRT creation, GeoTIFF conversion, and representative land-cover calculation. The final model-facing raster retains the same name for both options:
+
+```text
+domain_<DOMAIN>/parameters/landclass/7_mode_land_class/land_classes.tif
+```
+
+Downstream HRU land-cover extraction uses this raster without requiring changes to the HRU remapping or SUMMA input-generation scripts. The lumped HRU land-cover extraction reuses the distributed domain's final land-cover raster, so its control should specify the same year selection as the distributed control. The distributed MODIS product must be generated before lumped HRU land-cover extraction.
+
+The new settings were tested for a single year (`2022`) and a 22-year temporal mode (`2001-2022`) on `CAN_04CA003`, using isolated test directories. The multiyear processing completed successfully and produced a one-band representative IGBP raster from 22 annual bands. Users changing the year selection for an existing basin should preserve any earlier `land_classes.tif` they wish to retain, because rerunning the workflow updates that output.
+
 ## Meteorological forcing
 
 NAWM-CWARHM uses meteorological information from both ERA5 and EM-Earth.
@@ -303,6 +336,16 @@ SUMMA file-manager and forcing-list generation includes corresponding LST-aware 
 
 This separation of source preparation, remapping, assembly, concatenation, and time conversion makes the forcing workflow restartable and allows failed domain-month tasks to be rerun independently.
 
+### 6. Post-processing archive
+
+After the distributed and lumped forcing workflows have been completed and verified, monthly intermediate forcing files can be archived to reduce the number of individual files retained on the HPC filesystem.
+
+For each completed basin, monthly NetCDF files from the distributed and lumped forcing-processing stages are collected into verified `monthly_netcdf.tar` archives. Workflow logs are similarly consolidated into `workflow_logs.zip`.
+
+Original monthly files are removed only after successful archive verification. The final concatenated UTC and LST forcing products are retained unchanged.
+
+The archive workflow uses the same active basin batch defined through `set_batch.sh` and the existing lumped basin task inventory, allowing the same procedure to operate on small test batches or large production collections without generating a separate archive task list.
+
 ## Distributed and lumped model configurations
 
 NAWM-CWARHM supports two spatial representations of a basin within the same model-domain hierarchy:
@@ -322,6 +365,7 @@ The workflow provides dedicated lumped versions of the major processing stages, 
 - ERA5 and EM-Earth remapping;
 - SUMMA forcing assembly;
 - UTC-to-LST conversion;
+- safe post-processing archival of monthly forcing and workflow logs after distributed and lumped model preparation;
 - SUMMA attributes generation;
 - file-manager and forcing-list generation;
 - SUMMA model-input generation.
@@ -379,7 +423,7 @@ The main workflow directories are:
 0_tools/                        Shared workflow utilities
 1_folder_prep/                  Domain directory creation
 2_install/                      Environment and model installation
-3a_forcing/                     Meteorological preparation, concatenation, and UTC→LST conversion
+3a_forcing/                     Meteorological preparation, concatenation, UTC→LST conversion, and archival
 3b_parameters/                  DEM, soil and land-cover preparation
 4a_sort_shape/                  Spatial preprocessing
 4b_remapping/                   Distributed/lumped HRU parameter and forcing remapping
@@ -447,7 +491,8 @@ The manual contains:
 - final SUMMA forcing assembly;
 - forcing concatenation;
 - UTC-to-LST conversion;
-- DEM, soil, and MODIS preparation;
+- post-processing archival of monthly forcing and workflow logs;
+- DEM, soil, and MODIS preparation, including configurable single-year and multiyear land-cover selection;
 - distributed and lumped HRU parameter extraction;
 - SUMMA and mizuRoute input generation;
 - LST-aware SUMMA runtime generation;
@@ -457,3 +502,18 @@ The manual contains:
 - output checks and acceptance criteria.
 
 Machine-specific ARC paths, example basin collections, test job IDs, Slurm limits, and detailed command sequences belong in the manual rather than in this README.
+
+
+## References
+
+Clark, M. P., Nijssen, B., Lundquist, J. D., Kavetski, D., Rupp, D. E., Woods, R. A., et al. (2015a). A unified approach for process-based hydrologic modeling: 1. Modeling concept. *Water Resources Research*, **51**, 2498–2514. https://doi.org/10.1002/2015WR017198
+
+Clark, M. P., Nijssen, B., Lundquist, J. D., Kavetski, D., Rupp, D. E., Woods, R. A., et al. (2015b). A unified approach for process-based hydrologic modeling: 2. Model implementation and case studies. *Water Resources Research*, **51**, 2515–2542. https://doi.org/10.1002/2015WR017200
+
+Knoben, W. J. M., Clark, M. P., Bales, J., Bennett, A., Gharari, S., Marsh, C. B., Nijssen, B., Pietroniro, A., Spiteri, R. J., Tang, G., Tarboton, D. G., & Wood, A. W. (2022). Community Workflows to Advance Reproducibility in Hydrologic Modeling: Separating model-agnostic and model-specific configuration steps in applications of large-domain hydrologic models. *Water Resources Research*, **58**, e2021WR031753. https://doi.org/10.1029/2021WR031753
+
+Lin, P., Pan, M., Beck, H. E., Yang, Y., Yamazaki, D., Frasson, R., et al. (2019). Global reconstruction of naturalized river flows at 2.94 million reaches. *Water Resources Research*, **55**, 6499–6516. https://doi.org/10.1029/2019WR025287
+
+Mizukami, N., Clark, M. P., Sampson, K., Nijssen, B., Mao, Y., McMillan, H., et al. (2016). mizuRoute version 1: A river network routing tool for a continental domain water resources applications. *Geoscientific Model Development*, **9**, 2223–2238. https://doi.org/10.5194/gmd-9-2223-2016
+
+Yamazaki, D., Ikeshima, D., Sosa, J., Bates, P. D., Allen, G. H., & Pavelsky, T. M. (2019). MERIT Hydro: A high-resolution global hydrography map based on latest topography dataset. *Water Resources Research*, **55**, 5053–5073. https://doi.org/10.1029/2019WR024873

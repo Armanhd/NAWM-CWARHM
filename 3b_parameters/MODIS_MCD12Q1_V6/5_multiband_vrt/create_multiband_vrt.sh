@@ -119,63 +119,74 @@ fi
 
 
 # ============================================================
-# FIND CROPPED MODIS VRT FILES
+# SELECT MODIS YEARS FROM CONTROL FILE
 # ============================================================
 
-mapfile -t vrt_files < <(
-    find "$source_path" \
-        -maxdepth 1 \
-        -type f \
-        -name "domain_MCD12Q1_*.vrt" \
-        | sort
-)
+LAND_YEARS=$(read_control "parameter_land_years")
 
-if [ "${#vrt_files[@]}" -eq 0 ]; then
-    echo "ERROR: No cropped MODIS VRT files found in:"
-    echo "$source_path"
+if [[ "$LAND_YEARS" =~ ^[0-9]{4}$ ]]; then
+
+    years=("$LAND_YEARS")
+
+elif [[ "$LAND_YEARS" =~ ^([0-9]{4})-([0-9]{4})$ ]]; then
+
+    START_YEAR=${BASH_REMATCH[1]}
+    END_YEAR=${BASH_REMATCH[2]}
+
+    if (( 10#$START_YEAR > 10#$END_YEAR )); then
+        echo "ERROR: Invalid MODIS year range: $LAND_YEARS" >&2
+        exit 1
+    fi
+
+    mapfile -t years < <(seq "$START_YEAR" "$END_YEAR")
+
+else
+
+    echo "ERROR: Invalid parameter_land_years: $LAND_YEARS" >&2
+    echo "Expected YYYY or YYYY-YYYY" >&2
     exit 1
+
 fi
+
+
+# ============================================================
+# FIND ONLY THE REQUESTED ANNUAL VRT FILES
+# ============================================================
+
+vrt_files=()
+
+for YEAR in "${years[@]}"; do
+
+    VRT_FILE="${source_path}/domain_MCD12Q1_${YEAR}.vrt"
+
+    if [ ! -s "$VRT_FILE" ]; then
+
+        echo "ERROR: Required MODIS VRT not found:"
+        echo "$VRT_FILE"
+        exit 1
+
+    fi
+
+    vrt_files+=("$VRT_FILE")
+
+done
 
 
 # ============================================================
 # DETERMINE OUTPUT NAME
 # ============================================================
 
-# For the current NWAM workflow only 2022 is used, therefore
-# this normally produces:
-#
-# domain_MCD12Q1_2022.vrt
-#
-# If multiple years are added later, use a year-range name.
-
-years=()
-
-for vrt_file in "${vrt_files[@]}"; do
-
-    filename=$(basename "$vrt_file")
-
-    year=$(
-        echo "$filename" \
-        | sed -n 's/^domain_MCD12Q1_\([0-9][0-9][0-9][0-9]\)\.vrt$/\1/p'
-    )
-
-    if [ -z "$year" ]; then
-        echo "ERROR: Could not determine MODIS year from:"
-        echo "$filename"
-        exit 1
-    fi
-
-    years+=("$year")
-
-done
-
 first_year="${years[0]}"
 last_year="${years[$((${#years[@]} - 1))]}"
 
 if [ "${#years[@]}" -eq 1 ]; then
+
     output_name="domain_MCD12Q1_${first_year}.vrt"
+
 else
+
     output_name="domain_MCD12Q1_${first_year}-${last_year}.vrt"
+
 fi
 
 output_file="${dest_path}/${output_name}"

@@ -1,16 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
-# Convert the MODIS multiband domain VRT to GeoTIFF.
+# Convert the selected MODIS MCD12Q1 domain VRT to GeoTIFF.
+# Supports parameter_land_years | YYYY or YYYY-YYYY.
 #
 # Usage:
-#
-# bash convert_vrt_to_tif.sh \
-# /path/to/control_DOMAIN.txt
+#   bash convert_vrt_to_tif.sh /path/to/control_DOMAIN.txt
 #
 # Input:
 #   parameters/landclass/5_multiband_domain_vrt_epsg_4326/
-#
 # Output:
 #   parameters/landclass/6_tif_multiband/
 
@@ -32,13 +30,11 @@ if [ ! -f "$CONTROL_FILE" ]; then
     exit 1
 fi
 
-
 # ============================================================
 # CONTROL-FILE READER
 # ============================================================
 
 read_control() {
-
     local setting="$1"
     local value
 
@@ -57,7 +53,6 @@ read_control() {
     echo "$value"
 }
 
-
 # ============================================================
 # DOMAIN SETTINGS
 # ============================================================
@@ -66,7 +61,6 @@ root_path=$(read_control "root_path")
 domain_name=$(read_control "domain_name")
 
 domain_path="${root_path}/domain_${domain_name}"
-
 
 # ============================================================
 # SOURCE VRT DIRECTORY
@@ -84,7 +78,6 @@ if [ ! -d "$source_path" ]; then
     exit 1
 fi
 
-
 # ============================================================
 # DESTINATION DIRECTORY
 # ============================================================
@@ -96,7 +89,6 @@ if [ "$dest_path" = "default" ]; then
 fi
 
 mkdir -p "$dest_path"
-
 
 # ============================================================
 # GDAL CHECK
@@ -115,46 +107,77 @@ if ! command -v gdalinfo >/dev/null 2>&1; then
     exit 1
 fi
 
-
 # ============================================================
-# FIND SOURCE VRT
+# SELECT SOURCE VRT USING CONTROL-FILE YEARS
 # ============================================================
 
-mapfile -t vrt_files < <(
-    find "$source_path" \
-        -maxdepth 1 \
-        -type f \
-        -name "domain_MCD12Q1_*.vrt" \
-        | sort
-)
+LAND_YEARS=$(read_control "parameter_land_years")
 
-if [ "${#vrt_files[@]}" -eq 0 ]; then
-    echo "ERROR: No MODIS multiband VRT found in:"
-    echo "$source_path"
+if [[ "$LAND_YEARS" =~ ^[0-9]{4}$ ]]; then
+    first_year="$LAND_YEARS"
+    last_year="$LAND_YEARS"
+    expected_bands=1
+    vrt_name="domain_MCD12Q1_${first_year}.vrt"
+
+elif [[ "$LAND_YEARS" =~ ^([0-9]{4})-([0-9]{4})$ ]]; then
+    first_year="${BASH_REMATCH[1]}"
+    last_year="${BASH_REMATCH[2]}"
+
+    if (( 10#$first_year > 10#$last_year )); then
+        echo "ERROR: Invalid MODIS year range: $LAND_YEARS" >&2
+        exit 1
+    fi
+
+    expected_bands=$((10#$last_year - 10#$first_year + 1))
+
+    if [ "$expected_bands" -eq 1 ]; then
+        vrt_name="domain_MCD12Q1_${first_year}.vrt"
+    else
+        vrt_name="domain_MCD12Q1_${first_year}-${last_year}.vrt"
+    fi
+
+else
+    echo "ERROR: Invalid parameter_land_years: $LAND_YEARS" >&2
+    echo "Expected YYYY or YYYY-YYYY" >&2
     exit 1
 fi
 
-if [ "${#vrt_files[@]}" -gt 1 ]; then
-    echo "ERROR: More than one MODIS multiband VRT found:"
-    for file in "${vrt_files[@]}"; do
-        echo "  $file"
-    done
-    echo
-    echo "Expected exactly one multiband VRT."
+vrt_file="${source_path}/${vrt_name}"
+
+if [ ! -s "$vrt_file" ]; then
+    echo "ERROR: Required MODIS VRT not found:"
+    echo "$vrt_file"
     exit 1
 fi
-
-vrt_file="${vrt_files[0]}"
-
 
 # ============================================================
 # OUTPUT FILE
 # ============================================================
 
 base_name=$(basename "$vrt_file" .vrt)
-
 tif_file="${dest_path}/${base_name}.tif"
 
+# ============================================================
+# VERIFY SOURCE BAND COUNT BEFORE CONVERSION
+# ============================================================
+
+if ! gdalinfo "$vrt_file" >/dev/null 2>&1; then
+    echo "ERROR: GDAL cannot open input VRT:"
+    echo "$vrt_file"
+    exit 1
+fi
+
+input_band_count=$(
+    gdalinfo "$vrt_file" | grep -c '^Band '
+)
+
+if [ "$input_band_count" -ne "$expected_bands" ]; then
+    echo "ERROR: Input VRT band count does not match selected years."
+    echo "Selected years : $LAND_YEARS"
+    echo "Expected bands : $expected_bands"
+    echo "Actual bands   : $input_band_count"
+    exit 1
+fi
 
 # ============================================================
 # REPORT
@@ -165,68 +188,54 @@ echo "======================================================================"
 echo "CONVERT MODIS MULTIBAND VRT TO GEOTIFF"
 echo "======================================================================"
 echo
-echo "Domain       : $domain_name"
-echo "Control file : $CONTROL_FILE"
-echo "Input VRT    : $vrt_file"
-echo "Output TIFF  : $tif_file"
-echo "GDAL         : $(command -v gdal_translate)"
-echo "GDAL version : $(gdal_translate --version | head -1)"
+echo "Domain         : $domain_name"
+echo "Control file   : $CONTROL_FILE"
+echo "Selected years : $LAND_YEARS"
+echo "Expected bands : $expected_bands"
+echo "Input VRT      : $vrt_file"
+echo "Output TIFF    : $tif_file"
+echo "GDAL           : $(command -v gdal_translate)"
+echo "GDAL version   : $(gdal_translate --version | head -1)"
 echo
-
-
-# ============================================================
-# REMOVE OLD OUTPUT
-# ============================================================
-
-rm -f "$tif_file"
-
 
 # ============================================================
 # CONVERT VRT TO GEOTIFF
 # ============================================================
+
+# Write a temporary file so a failed conversion does not destroy
+# a previously successful TIFF. Move it into place after validation.
+tmp_tif="${dest_path}/.${base_name}.$$.tmp.tif"
+trap 'rm -f "$tmp_tif"' EXIT
 
 gdal_translate \
     -co COMPRESS=DEFLATE \
     -co TILED=YES \
     -co BIGTIFF=IF_SAFER \
     "$vrt_file" \
-    "$tif_file"
-
+    "$tmp_tif"
 
 # ============================================================
-# VERIFY OUTPUT EXISTS
+# VERIFY OUTPUT EXISTS AND GDAL CAN OPEN IT
 # ============================================================
 
-if [ ! -s "$tif_file" ]; then
+if [ ! -s "$tmp_tif" ]; then
     echo "ERROR: GeoTIFF was not created:"
-    echo "$tif_file"
+    echo "$tmp_tif"
     exit 1
 fi
 
-
-# ============================================================
-# VERIFY GDAL CAN OPEN OUTPUT
-# ============================================================
-
-if ! gdalinfo "$tif_file" >/dev/null 2>&1; then
+if ! gdalinfo "$tmp_tif" >/dev/null 2>&1; then
     echo "ERROR: Created GeoTIFF cannot be opened by GDAL:"
-    echo "$tif_file"
+    echo "$tmp_tif"
     exit 1
 fi
-
 
 # ============================================================
 # VERIFY BAND COUNT
 # ============================================================
 
-input_band_count=$(
-    gdalinfo "$vrt_file" \
-    | grep -c '^Band '
-)
-
 output_band_count=$(
-    gdalinfo "$tif_file" \
-    | grep -c '^Band '
+    gdalinfo "$tmp_tif" | grep -c '^Band '
 )
 
 if [ "$input_band_count" -ne "$output_band_count" ]; then
@@ -236,21 +245,24 @@ if [ "$input_band_count" -ne "$output_band_count" ]; then
     exit 1
 fi
 
+if [ "$output_band_count" -ne "$expected_bands" ]; then
+    echo "ERROR: MODIS band count does not match selected years."
+    echo "Selected years : $LAND_YEARS"
+    echo "Expected bands : $expected_bands"
+    echo "Actual bands   : $output_band_count"
+    exit 1
+fi
 
 # ============================================================
 # VERIFY RASTER SIZE
 # ============================================================
 
 input_size=$(
-    gdalinfo "$vrt_file" \
-    | grep '^Size is ' \
-    | head -1
+    gdalinfo "$vrt_file" | grep '^Size is ' | head -1
 )
 
 output_size=$(
-    gdalinfo "$tif_file" \
-    | grep '^Size is ' \
-    | head -1
+    gdalinfo "$tmp_tif" | grep '^Size is ' | head -1
 )
 
 if [ "$input_size" != "$output_size" ]; then
@@ -260,25 +272,39 @@ if [ "$input_size" != "$output_size" ]; then
     exit 1
 fi
 
+# ============================================================
+# FINALIZE OUTPUT AND REMOVE OBSOLETE MODIS TIFFS
+# ============================================================
+
+mv -f "$tmp_tif" "$tif_file"
+
+# Step 7 expects exactly one domain_MCD12Q1_*.tif input.
+# Only matching obsolete intermediate TIFFs in this directory are removed.
+find "$dest_path" \
+    -maxdepth 1 \
+    -type f \
+    -name 'domain_MCD12Q1_*.tif' \
+    ! -name "$(basename "$tif_file")" \
+    -print \
+    -delete
 
 # ============================================================
 # WORKFLOW LOG
 # ============================================================
 
 log_path="${dest_path}/_workflow_log"
-
 mkdir -p "$log_path"
 
 timestamp=$(date '+%Y%m%d_%H%M%S')
-
 log_file="${log_path}/${timestamp}_convert_modis_vrt_to_tif.txt"
-
 this_file=$(basename "$0")
 
 {
     echo "Log generated by ${this_file} on $(date '+%F %H:%M:%S')"
     echo "Domain: ${domain_name}"
     echo "Control file: ${CONTROL_FILE}"
+    echo "Selected years: ${LAND_YEARS}"
+    echo "Expected bands: ${expected_bands}"
     echo "Input VRT: ${vrt_file}"
     echo "Output TIFF: ${tif_file}"
     echo "Bands: ${output_band_count}"
@@ -287,14 +313,8 @@ this_file=$(basename "$0")
     echo "GDAL version: $(gdal_translate --version | head -1)"
 } > "$log_file"
 
-cp \
-    "$0" \
-    "$log_path/$this_file"
-
-cp \
-    "$CONTROL_FILE" \
-    "$log_path/$(basename "$CONTROL_FILE")"
-
+cp "$0" "$log_path/$this_file"
+cp "$CONTROL_FILE" "$log_path/$(basename "$CONTROL_FILE")"
 
 # ============================================================
 # FINISH
@@ -304,8 +324,9 @@ echo
 echo "======================================================================"
 echo "MODIS GEOTIFF CREATION COMPLETED"
 echo "======================================================================"
-echo "Domain       : $domain_name"
-echo "Bands        : $output_band_count"
-echo "Raster size  : $output_size"
-echo "Output TIFF  : $tif_file"
-echo "Workflow log : $log_file"
+echo "Domain         : $domain_name"
+echo "Selected years : $LAND_YEARS"
+echo "Bands          : $output_band_count"
+echo "Raster size    : $output_size"
+echo "Output TIFF    : $tif_file"
+echo "Workflow log   : $log_file"

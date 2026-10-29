@@ -4,19 +4,13 @@ set -euo pipefail
 # Crop reprojected MODIS MCD12Q1 VRT files to the active modeling domain.
 #
 # Usage:
-#
-# bash specify_subdomain.sh \
-# /path/to/control_DOMAIN.txt
+# bash specify_subdomain.sh /path/to/control_DOMAIN.txt
 #
 # The domain extent is read from:
-#
 # forcing_raw_space | LAT_MAX/LON_MIN/LAT_MIN/LON_MAX
 #
-# Input:
-#   parameters/landclass/3_vrt_epsg_4326/
-#
-# Output:
-#   parameters/landclass/4_domain_vrt_epsg_4326/
+# Input:  parameters/landclass/3_vrt_epsg_4326/
+# Output: parameters/landclass/4_domain_vrt_epsg_4326/
 
 # ============================================================
 # INPUT CONTROL FILE
@@ -41,7 +35,6 @@ fi
 # ============================================================
 
 read_control() {
-
     local setting="$1"
     local value
 
@@ -116,37 +109,25 @@ if (
     exit 1
 fi
 
-# Basic numeric check.
-
 number_regex='^-?[0-9]+([.][0-9]+)?$'
 
 for value in "$LAT_MAX" "$LON_MIN" "$LAT_MIN" "$LON_MAX"; do
-
     if [[ ! "$value" =~ $number_regex ]]; then
         echo "ERROR: Non-numeric coordinate in forcing_raw_space:"
         echo "$domain_full"
         exit 1
     fi
-
 done
 
-# Basic bounds sanity checks.
-
-if ! awk \
-    -v latmax="$LAT_MAX" \
-    -v latmin="$LAT_MIN" \
-    'BEGIN { exit !(latmax > latmin) }'
-then
+if ! awk -v latmax="$LAT_MAX" -v latmin="$LAT_MIN" \
+    'BEGIN { exit !(latmax > latmin) }'; then
     echo "ERROR: LAT_MAX must be greater than LAT_MIN."
     echo "forcing_raw_space: $domain_full"
     exit 1
 fi
 
-if ! awk \
-    -v lonmax="$LON_MAX" \
-    -v lonmin="$LON_MIN" \
-    'BEGIN { exit !(lonmax > lonmin) }'
-then
+if ! awk -v lonmax="$LON_MAX" -v lonmin="$LON_MIN" \
+    'BEGIN { exit !(lonmax > lonmin) }'; then
     echo "ERROR: LON_MAX must be greater than LON_MIN."
     echo "forcing_raw_space: $domain_full"
     exit 1
@@ -165,22 +146,41 @@ if ! command -v gdal_translate >/dev/null 2>&1; then
 fi
 
 # ============================================================
-# FIND INPUT VRT FILES
+# FIND INPUT VRT FILES FOR SELECTED YEARS
 # ============================================================
 
-mapfile -t vrt_files < <(
-    find "$source_path" \
-        -maxdepth 1 \
-        -type f \
-        -name "MCD12Q1_*.vrt" \
-        | sort
-)
+LAND_YEARS=$(read_control "parameter_land_years")
 
-if [ "${#vrt_files[@]}" -eq 0 ]; then
-    echo "ERROR: No reprojected MODIS VRT files found in:"
-    echo "$source_path"
+if [[ "$LAND_YEARS" =~ ^[0-9]{4}$ ]]; then
+    years=("$LAND_YEARS")
+elif [[ "$LAND_YEARS" =~ ^([0-9]{4})-([0-9]{4})$ ]]; then
+    START_YEAR=${BASH_REMATCH[1]}
+    END_YEAR=${BASH_REMATCH[2]}
+
+    if (( 10#$START_YEAR > 10#$END_YEAR )); then
+        echo "ERROR: Invalid MODIS year range: $LAND_YEARS" >&2
+        exit 1
+    fi
+
+    mapfile -t years < <(seq "$START_YEAR" "$END_YEAR")
+else
+    echo "ERROR: Invalid parameter_land_years: $LAND_YEARS" >&2
+    echo "Expected YYYY or YYYY-YYYY" >&2
     exit 1
 fi
+
+vrt_files=()
+
+for YEAR in "${years[@]}"; do
+    VRT_FILE="${source_path}/MCD12Q1_${YEAR}.vrt"
+
+    if [ ! -s "$VRT_FILE" ]; then
+        echo "ERROR: Missing MODIS VRT: $VRT_FILE" >&2
+        exit 1
+    fi
+
+    vrt_files+=("$VRT_FILE")
+done
 
 # ============================================================
 # REPORT
@@ -195,6 +195,7 @@ echo "Domain       : $domain_name"
 echo "Control file : $CONTROL_FILE"
 echo "Source       : $source_path"
 echo "Destination  : $dest_path"
+echo "MODIS years  : $LAND_YEARS"
 echo "VRT files    : ${#vrt_files[@]}"
 echo
 echo "Domain extent:"
@@ -212,9 +213,7 @@ echo
 created_count=0
 
 for FILE_SRC in "${vrt_files[@]}"; do
-
     FILENAME=$(basename "$FILE_SRC")
-
     FILE_DES="${dest_path}/domain_${FILENAME}"
 
     echo "----------------------------------------------------------------------"
@@ -222,12 +221,11 @@ for FILE_SRC in "${vrt_files[@]}"; do
     echo "Output: $FILE_DES"
     echo "----------------------------------------------------------------------"
 
-    # Remove an old output so a failed rerun cannot leave a stale VRT.
-
     rm -f "$FILE_DES"
 
     gdal_translate \
         -of VRT \
+        -r nearest \
         -projwin \
         "$LON_MIN" \
         "$LAT_MAX" \
@@ -241,8 +239,6 @@ for FILE_SRC in "${vrt_files[@]}"; do
         echo "$FILE_DES"
         exit 1
     fi
-
-    # Confirm the result is readable.
 
     if ! gdalinfo "$FILE_DES" >/dev/null 2>&1; then
         echo "ERROR: Cropped VRT cannot be opened by GDAL:"
@@ -263,13 +259,10 @@ done
 # ============================================================
 
 log_path="${dest_path}/_workflow_log"
-
 mkdir -p "$log_path"
 
 timestamp=$(date '+%Y%m%d_%H%M%S')
-
 log_file="${log_path}/${timestamp}_crop_modis_domain_vrt.txt"
-
 this_file=$(basename "$0")
 
 {
@@ -278,6 +271,7 @@ this_file=$(basename "$0")
     echo "Control file: ${CONTROL_FILE}"
     echo "Source VRT directory: ${source_path}"
     echo "Output VRT directory: ${dest_path}"
+    echo "MODIS years: ${LAND_YEARS}"
     echo "Domain latitude: ${LAT_MIN} to ${LAT_MAX}"
     echo "Domain longitude: ${LON_MIN} to ${LON_MAX}"
     echo "VRT files processed: ${#vrt_files[@]}"
@@ -286,13 +280,8 @@ this_file=$(basename "$0")
     echo "GDAL version: $(gdal_translate --version | head -1)"
 } > "$log_file"
 
-cp \
-    "$0" \
-    "$log_path/$this_file"
-
-cp \
-    "$CONTROL_FILE" \
-    "$log_path/$(basename "$CONTROL_FILE")"
+cp "$0" "$log_path/$this_file"
+cp "$CONTROL_FILE" "$log_path/$(basename "$CONTROL_FILE")"
 
 # ============================================================
 # FINISH
