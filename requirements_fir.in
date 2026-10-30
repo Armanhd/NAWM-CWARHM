@@ -1,0 +1,20 @@
+# FIR module-first Python preprocessing dependencies (Python 3.12).
+# FIR modules provide Python, NumPy, pandas, SciPy, GDAL and mpi4py.
+# IMPORTANT: netCDF4 is intentionally omitted: setup_nwam_fir.sh builds
+# netCDF4 1.7.4 against FIR's SERIAL NetCDF/HDF5, preventing a Rasterio
+# import-order conflict seen with the wheelhouse's MPI-linked netCDF4 wheel.
+# Base package versions were tested on FIR on 2026-10-30.
+xarray==2026.9.0
+h5netcdf==1.8.2
+cftime==1.6.5
+geopandas==1.2.0
+shapely==2.1.2
+pyproj==3.7.2
+rasterio==1.5.0
+rasterstats==0.19.0
+fiona==1.10.1
+pyshp==3.1.6
+rtree==1.4.1
+tqdm==4.70.1
+GitPython==3.1.50
+easymore==1.0.0

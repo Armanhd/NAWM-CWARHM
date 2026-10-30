@@ -32,10 +32,11 @@ import sys
 SCRIPT_DIR = Path(__file__).resolve().parent
 CWARHM_ROOT = SCRIPT_DIR.parent.parent
 
-MERIT_ARCHIVE = Path(
-    "/work/comphyd_lab/data/geospatial-data/MERIT-Hydro/elv"
-)
+# on ARC
+#MERIT_ARCHIVE = Path("/work/comphyd_lab/data/geospatial-data/MERIT-Hydro/elv")
 
+# on FIR
+MERIT_ARCHIVE = Path("/project/rrg-alpie/data/geospatial-data/MERIT-Hydro/elv")
 
 # ============================================================
 # CONTROL FILE

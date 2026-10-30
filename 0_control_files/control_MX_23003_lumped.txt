@@ -6,7 +6,7 @@
 # Modeling domain settings
 # =====================================================================
 
-root_path                           | /work/comphyd_lab/share/Data_CAMELS_MX
+root_path                           | /project/6079554/share/camels-mx/nawm_cwarhm_output
 domain_name                         | MX_23003
 
 
@@ -14,7 +14,7 @@ domain_name                         | MX_23003
 # Shapefile settings - SUMMA catchment file
 # =====================================================================
 
-catchment_shp_path                  | /work/comphyd_lab/share/dataset_develop/camels_mx/basin_delineation/outputs/MX_23003/cwarhm_exports/tdx_clipped/shapefiles/catchment
+catchment_shp_path                  | /project/6079554/share/camels-mx/basin_delineation/MX_23003/cwarhm_exports/tdx_clipped/shapefiles/catchment
 catchment_shp_name                  | MX_23003_catchment.shp
 catchment_shp_gruid                 | GRU_ID
 catchment_shp_hruid                 | HRU_ID
@@ -27,7 +27,7 @@ catchment_shp_lon                   | center_lon
 # Shapefile settings - mizuRoute river network file
 # =====================================================================
 
-river_network_shp_path              | /work/comphyd_lab/share/dataset_develop/camels_mx/basin_delineation/outputs/MX_23003/cwarhm_exports/tdx_clipped/shapefiles/river_network
+river_network_shp_path              | /project/6079554/share/camels-mx/basin_delineation/MX_23003/cwarhm_exports/tdx_clipped/shapefiles/river_network
 river_network_shp_name              | MX_23003_river_network.shp
 river_network_shp_segid             | COMID
 river_network_shp_downsegid         | NextDownID
@@ -40,8 +40,8 @@ river_network_shp_length            | length_m
 # Shapefile settings - mizuRoute routing-basin file
 # =====================================================================
 
-river_basin_shp_path                | /work/comphyd_lab/share/dataset_develop/camels_mx/basin_delineation/outputs/MX_23003/cwarhm_exports/tdx_clipped/shapefiles/catchment
-river_basin_shp_name                | MX_23003_catchment.shp
+river_basin_shp_path                | /project/6079554/share/camels-mx/basin_delineation/MX_23003/cwarhm_exports/tdx_clipped/shapefiles/river_basins
+river_basin_shp_name                | MX_23003_river_basins.shp
 river_basin_shp_rm_hruid            | COMID
 river_basin_shp_area                | area
 river_basin_shp_hru_to_seg          | hru_to_seg
@@ -83,22 +83,22 @@ exe_name_mizuroute          | mizuroute.exe
 forcing_raw_time            | 1950,2019
 
 # LAT_MAX/LON_MIN/LAT_MIN/LON_MAX
-forcing_raw_space                   | 15.380722/-92.574278/14.368389/-91.870611
+forcing_raw_space                   | 15.380722/-92.522639/14.469306/-91.870611
 
 forcing_time_step_size      | 3600
 forcing_measurement_height  | 3
 
-# Shared ARC forcing archives.
-forcing_emearth_path        | /work/comphyd_lab/data/meteorological-data/EM_Earth_v1/deterministic_hourly
+# Shared FIR forcing archives.
+forcing_emearth_path        | /project/rrg-alpie/data/meteorological-data/EM_Earth_v1/deterministic_hourly
 
 # EM-Earth precipitation source variable.
 # Valid options: prcp, prcp_corrected.
 # Downstream SUMMA variable remains pptrate.
-forcing_emearth_precip              | prcp
-forcing_era5_path           | /work/comphyd_lab/data/meteorological-data/era5
+forcing_emearth_precip              | prcp_corrected
+forcing_era5_path           | /project/rrg-alpie/data/meteorological-data/era5
 
 # Forcing-grid shapefiles used for EASYMORE.
-forcing_shape_path                  | /work/comphyd_lab/share/Data_CAMELS_MX/domain_MX_23003/lumped/shapefiles/forcing
+forcing_shape_path                  | /project/6079554/share/camels-mx/nawm_cwarhm_output/domain_MX_23003/lumped/shapefiles/forcing
 
 # Legacy CWARHM setting retained for compatibility.
 forcing_shape_name          | ERA5_grid.shp
@@ -112,12 +112,12 @@ forcing_shape_lat_name      | lat
 forcing_shape_lon_name      | lon
 
 # Forcing workflow paths.
-forcing_geo_path                    | /work/comphyd_lab/share/Data_CAMELS_MX/domain_MX_23003/lumped/forcing/0_geopotential
-forcing_raw_path                    | /work/comphyd_lab/share/Data_CAMELS_MX/domain_MX_23003/lumped/forcing/1_raw_data
-forcing_merged_path                 | /work/comphyd_lab/share/Data_CAMELS_MX/domain_MX_23003/lumped/forcing/2_merged_data
-forcing_easymore_path               | /work/comphyd_lab/share/Data_CAMELS_MX/domain_MX_23003/lumped/forcing/3_temp_easymore
-forcing_basin_avg_path              | /work/comphyd_lab/share/Data_CAMELS_MX/domain_MX_23003/lumped/forcing/3_basin_averaged_data
-forcing_summa_path                  | /work/comphyd_lab/share/Data_CAMELS_MX/domain_MX_23003/lumped/forcing/4_SUMMA_input
+forcing_geo_path                    | /project/6079554/share/camels-mx/nawm_cwarhm_output/domain_MX_23003/lumped/forcing/0_geopotential
+forcing_raw_path                    | /project/6079554/share/camels-mx/nawm_cwarhm_output/domain_MX_23003/lumped/forcing/1_raw_data
+forcing_merged_path                 | /project/6079554/share/camels-mx/nawm_cwarhm_output/domain_MX_23003/lumped/forcing/2_merged_data
+forcing_easymore_path               | /project/6079554/share/camels-mx/nawm_cwarhm_output/domain_MX_23003/lumped/forcing/3_temp_easymore
+forcing_basin_avg_path              | /project/6079554/share/camels-mx/nawm_cwarhm_output/domain_MX_23003/lumped/forcing/3_basin_averaged_data
+forcing_summa_path                  | /project/6079554/share/camels-mx/nawm_cwarhm_output/domain_MX_23003/lumped/forcing/4_SUMMA_input
 
 
 # =====================================================================
@@ -130,8 +130,8 @@ parameter_dem_file_template | elv_{}{}.tar
 parameter_dem_raw_path      | default
 parameter_dem_unpack_path   | default
 parameter_dem_vrt1_path     | default
-parameter_dem_vrt2_path             | /work/comphyd_lab/share/Data_CAMELS_MX/domain_MX_23003/lumped/parameters/dem/4_domain_vrt
-parameter_dem_tif_path              | /work/comphyd_lab/share/Data_CAMELS_MX/domain_MX_23003/lumped/parameters/dem/5_elevation
+parameter_dem_vrt2_path             | /project/6079554/share/camels-mx/nawm_cwarhm_output/domain_MX_23003/lumped/parameters/dem/4_domain_vrt
+parameter_dem_tif_path              | /project/6079554/share/camels-mx/nawm_cwarhm_output/domain_MX_23003/lumped/parameters/dem/5_elevation
 
 parameter_dem_tif_name      | elevation.tif
 
@@ -142,10 +142,10 @@ parameter_dem_tif_name      | elevation.tif
 
 parameter_soil_hydro_ID     | 1361509511e44adfba814f6950c6e742
 
-parameter_soil_raw_path             | /work/comphyd_lab/data/geospatial-data/soil_classes
+parameter_soil_raw_path             | /project/6102189/data/geospatial-data/soil_classes
 
-# Shared ARC soil-class product.
-parameter_soil_domain_path          | /work/comphyd_lab/share/Data_CAMELS_MX/domain_MX_23003/lumped/parameters/soilclass/2_soil_classes_domain
+# Shared FIR soil-class product.
+parameter_soil_domain_path          | /project/6079554/share/camels-mx/nawm_cwarhm_output/domain_MX_23003/lumped/parameters/soilclass/2_soil_classes_domain
 parameter_soil_tif_name     | soil_classes.tif
 
 
@@ -156,15 +156,15 @@ parameter_soil_tif_name     | soil_classes.tif
 parameter_land_list_path    | default
 parameter_land_list_name    | daac_mcd12q1_data_links.txt
 
-# Shared ARC MODIS MCD12Q1.061 collection.
-parameter_land_raw_path     | /work/comphyd_lab/data/geospatial-data/MODIS/MCD12Q1.061/2022.01.01
+# Shared FIR MODIS MCD12Q1.061 collection.
+parameter_land_raw_path     | /project/rrg-alpie/data/geospatial-data/MODIS/MCD12Q1.061/2022.01.01
 
 parameter_land_vrt1_path    | default
 parameter_land_vrt2_path    | default
-parameter_land_vrt3_path            | /work/comphyd_lab/share/Data_CAMELS_MX/domain_MX_23003/lumped/parameters/landclass/4_domain_vrt_epsg_4326
-parameter_land_vrt4_path            | /work/comphyd_lab/share/Data_CAMELS_MX/domain_MX_23003/lumped/parameters/landclass/5_multiband_domain_vrt_epsg_4326
-parameter_land_tif_path             | /work/comphyd_lab/share/Data_CAMELS_MX/domain_MX_23003/lumped/parameters/landclass/6_tif_multiband
-parameter_land_mode_path            | /work/comphyd_lab/share/Data_CAMELS_MX/domain_MX_23003/lumped/parameters/landclass/7_mode_land_class
+parameter_land_vrt3_path            | /project/6079554/share/camels-mx/nawm_cwarhm_output/domain_MX_23003/lumped/parameters/landclass/4_domain_vrt_epsg_4326
+parameter_land_vrt4_path            | /project/6079554/share/camels-mx/nawm_cwarhm_output/domain_MX_23003/lumped/parameters/landclass/5_multiband_domain_vrt_epsg_4326
+parameter_land_tif_path             | /project/6079554/share/camels-mx/nawm_cwarhm_output/domain_MX_23003/lumped/parameters/landclass/6_tif_multiband
+parameter_land_mode_path            | /project/6079554/share/camels-mx/nawm_cwarhm_output/domain_MX_23003/lumped/parameters/landclass/7_mode_land_class
 
 parameter_land_tif_name     | land_classes.tif
 
@@ -173,16 +173,16 @@ parameter_land_tif_name     | land_classes.tif
 # Intersection settings
 # =====================================================================
 
-intersect_dem_path                  | /work/comphyd_lab/share/Data_CAMELS_MX/domain_MX_23003/lumped/shapefiles/catchment_intersection/with_dem
+intersect_dem_path                  | /project/6079554/share/camels-mx/nawm_cwarhm_output/domain_MX_23003/lumped/shapefiles/catchment_intersection/with_dem
 intersect_dem_name          | catchment_with_merit_dem.shp
 
-intersect_soil_path                 | /work/comphyd_lab/share/Data_CAMELS_MX/domain_MX_23003/lumped/shapefiles/catchment_intersection/with_soilgrids
+intersect_soil_path                 | /project/6079554/share/camels-mx/nawm_cwarhm_output/domain_MX_23003/lumped/shapefiles/catchment_intersection/with_soilgrids
 intersect_soil_name         | catchment_with_soilgrids.shp
 
-intersect_land_path                 | /work/comphyd_lab/share/Data_CAMELS_MX/domain_MX_23003/lumped/shapefiles/catchment_intersection/with_modis
+intersect_land_path                 | /project/6079554/share/camels-mx/nawm_cwarhm_output/domain_MX_23003/lumped/shapefiles/catchment_intersection/with_modis
 intersect_land_name         | catchment_with_modis.shp
 
-intersect_forcing_path              | /work/comphyd_lab/share/Data_CAMELS_MX/domain_MX_23003/lumped/shapefiles/catchment_intersection/with_forcing
+intersect_forcing_path              | /project/6079554/share/camels-mx/nawm_cwarhm_output/domain_MX_23003/lumped/shapefiles/catchment_intersection/with_forcing
 
 intersect_routing_path      | default
 intersect_routing_name      | catchment_with_routing_basins.shp
@@ -198,10 +198,10 @@ experiment_id               | run1
 experiment_time_start       | default
 experiment_time_end         | default
 
-experiment_output_summa             | /work/comphyd_lab/share/Data_CAMELS_MX/domain_MX_23003/lumped/simulations/run1/SUMMA
+experiment_output_summa             | /project/6079554/share/camels-mx/nawm_cwarhm_output/domain_MX_23003/lumped/simulations/run1/SUMMA
 experiment_output_mizuRoute | default
 
-experiment_log_summa                | /work/comphyd_lab/share/Data_CAMELS_MX/domain_MX_23003/lumped/simulations/run1/SUMMA
+experiment_log_summa                | /project/6079554/share/camels-mx/nawm_cwarhm_output/domain_MX_23003/lumped/simulations/run1/SUMMA
 experiment_log_mizuroute    | default
 
 experiment_backup_settings  | yes
@@ -211,7 +211,7 @@ experiment_backup_settings  | yes
 # Experiment settings - SUMMA
 # =====================================================================
 
-settings_summa_path                 | /work/comphyd_lab/share/Data_CAMELS_MX/domain_MX_23003/lumped/settings/SUMMA
+settings_summa_path                 | /project/6079554/share/camels-mx/nawm_cwarhm_output/domain_MX_23003/lumped/settings/SUMMA
 
 settings_summa_filemanager  | fileManager.txt
 settings_summa_coldstate    | coldState.nc
@@ -255,76 +255,3 @@ settings_mizu_make_outlet           | n/a
 # =====================================================================
 
 visualization_folder        | default
-
-- CWARHM_data
-   |
-   |_ domain_BowAtBanff
-   |   |
-   |   |_ forcing
-   |   |   |_ 0_geopotential
-   |   |   |_ 1_raw_data
-   |   |   |_ 2_merged_data
-   |   |   |_ 3_basin_averaged_data
-   |   |   |_ 4_SUMMA_input
-   |   |
-   |   |_ parameters
-   |   |   |_ soilclass
-   |   |   |   |_ 1_soil_classes_global
-   |   |   |   |_ 2_soil_classes_domain
-   |   |   |   
-   |   |   |_ landclass
-   |   |   |   |_ 1_MODIS_raw_data
-   |   |   |   |_ 2_vrt_native_crs
-   |   |   |   |_ 3_vrt_epsg_4326
-   |   |   |   |_ 4_domain_vrt_epsg_4326
-   |   |   |   |_ 5_multiband_domain_vrt_epsg_4326
-   |   |   |   |_ 6_tif_multiband
-   |   |   |   |_ 7_mode_land_class
-   |   |   |   
-   |   |   |_ dem
-   |   |       |_ 1_MERIT_hydro_raw_data
-   |   |       |_ 2_MERIT_hydro_unpacked_data
-   |   |       |_ 3_vrt
-   |   |       |_ 4_domain_vrt
-   |   |       |_ 5_elevation
-   |   |
-   |   |_ settings
-   |   |   |_ mizuRoute
-   |   |   |_ SUMMA
-   |   |
-   |   |_ shapefiles
-   |   |   |_ catchment
-   |   |   |_ catchment_intersection
-   |   |   |   |_ with_dem
-   |   |   |   |_ with_forcing
-   |   |   |   |_ with_soil
-   |   |   |   |_ with_veg
-   |   |   |_ forcing
-   |   |   |_ river_basins
-   |   |   |_ river_network
-   |   |
-   |   |_ simulations
-   |   |   |_run1
-   |   |   |  |_ 0_settings_backup
-   |   |   |  |   |_ summa
-   |   |   |  |   |_ mizuRoute
-   |   |   |  |_ summa
-   |   |   |  |   |_run_settings
-   |   |   |  |   |_SUMMA_logs
-   |   |   |  |_ mizuRoute
-   |   |   |  |   |_run_settings
-   |   |   |  |   |_mizuRoute_logs
-   |   |   |_run2
-   |   |      |_ ...
-   |   |
-   |   |_ visualization
-   |
-   |_ domain_global
-   |   |_ ...
-   |
-   |_ domain_northAmerica
-   |   |_ ...
-   |
-   |_ installs
-       |_ mizuRoute
-       |_ SUMMA

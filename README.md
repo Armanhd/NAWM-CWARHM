@@ -9,11 +9,74 @@ NAWM-CWARHM retains the fundamental CWARHM philosophy of separating model-agnost
 The repository is based on the original CH-Earth/CWARHM workflow.
 
 > [!IMPORTANT]
+
 > **This branch: `CAMELS_SPAT_MX` — CAMELS-MX demonstration and development.**
+
 >
+
 > This branch provides an initial example of adapting NAWM-CWARHM to a set of **21 CAMELS-MX basins**. It is **not a completed, validated 21-basin modelling product**. The broader NAWM-CWARHM development work continues separately on `NAWM-multibasin`.
+
 >
+
 > The workflow, input datasets, and processing choices in this demonstration **will be reviewed and updated in future**, depending on the data selected for each stage of the workflow.
+
+## Running on FIR and ARC
+
+NAWM-CWARHM supports two HPC environments. **FIR and ARC require different Python environment setup procedures**; the workflow source code can be shared, but the cluster-specific paths and environment activation commands are not interchangeable.
+
+### FIR (Alliance): recommended module-first Python setup
+
+FIR uses Alliance software modules and a small Python virtual environment. Python, SciPy, GDAL, HDF5, NetCDF C, MPI and SpatialIndex come from FIR modules; additional Python packages are installed from the local Alliance wheelhouse. The Python `netCDF4` binding is built against **serial** NetCDF/HDF5 to remain compatible with Rasterio, using those existing native FIR libraries.
+
+**New installation** (run once per user in an allocated FIR compute-node shell):
+
+```bash
+# From the NAWM-CWARHM-MX repository root on FIR
+salloc --time=00:45:00 --cpus-per-task=2 --mem=8G
+# Once placed on a compute node:
+bash setup_nwam_fir.sh
+```
+
+**Existing working FIR installations:** Do **not** rerun the one-time setup. The validated `nwam-fir` virtual environment can be reused directly.
+
+**Every new terminal or batch-job shell** (after the initial setup):
+
+```bash
+cd /path/to/NAWM-CWARHM-MX
+source load_nwam_fir.sh
+python 0_tools/check_nwam_fir.py   # Optional validation
+```
+
+The loader currently uses the verified modules `StdEnv/2023`, `python/3.12.4`, `python-build-bundle/2026a`, `scipy-stack/2026a`, `gdal/3.9.1`, `mpi4py/4.0.3` and `libspatialindex/1.9.3`. The default virtual environment is `~/virtual-envs/nwam-fir`. See **[FIR environment setup](docs/FIR_environment_setup.md)** for the complete setup, testing, troubleshooting and Slurm-job instructions. The setup is idempotent with respect to your existing work: it refuses to overwrite a pre-existing target environment.
+
+For the CAMELS-MX demonstration on FIR, example data locations are `/project/rrg-mclark/datasets/CAMELS_SPAT_MX/outputs/` (TDX clipped input exports) and `/project/rrg-mclark/datasets/CAMELS_SPAT_MX_Model/` (model products). **Basin control files and task inventories may still contain absolute ARC or checkout-specific paths; update or regenerate them on FIR before processing.** Loading the Python environment alone does not make ARC datasets available on FIR.
+
+### ARC (University of Calgary): existing Conda environment
+
+The earlier ARC workflow uses the repository's existing Conda-based configuration and scripts. These remain available and are not replaced by the FIR setup:
+
+| Existing ARC file | Role |
+| --- | --- |
+| `environment_nwam.yml` | Main Conda environment specification (`nwam`) |
+| `create_nwam_env.sh` | Original ARC environment creation helper |
+| `update_nwam_env.sh` | Original ARC environment update helper; inspect its configured paths before running |
+| `environment_nwam_parallel.yml` | Parallel environment specification |
+| `create_nwam_parallel_env.sh` | Helper for the parallel environment |
+
+Typical ARC activation after its environment has been created:
+
+```bash
+module load conda/base
+conda activate nwam
+```
+
+For a first-time ARC setup, use the appropriate existing creation script or the YAML-based Conda workflow for that installation, after checking the script's cluster paths and loaded modules. ARC data have previously been configured under `/work/comphyd_lab/` (including the CAMELS-MX example root `/work/comphyd_lab/share/Data_CAMELS_MX`); these are **ARC-specific** and should not be copied into FIR controls unchanged. Do **not** use `update_nwam_env.sh` on FIR.
+
+### Scope of these environments
+
+The FIR setup documented here covers **Python geospatial preprocessing, forcing processing and EASYMORE**, not compilation of SUMMA or mizuRoute. Compiled hydrological models have separate module/compiler requirements and should be installed according to the appropriate cluster's model-build instructions.
+
+---
 
 ## CAMELS-MX demonstration (`CAMELS_SPAT_MX` branch)
 
@@ -277,7 +340,6 @@ The hourly EM-Earth archive contains known seven-hour gaps on **1 January 1950**
 
 This treatment applies only to these two documented gaps. Any other missing timestamps are treated as unexpected and cause the forcing-preparation task to fail.
 
-
 ## Domain preparation
 
 NAWM-CWARHM adds a new:
@@ -389,10 +451,12 @@ The archive workflow uses the same active basin batch defined through `set_batch
 
 NAWM-CWARHM supports two spatial representations of a basin within the same model-domain hierarchy:
 
-**Distributed configuration**  
+**Distributed configuration**
+
 Retains the multi-HRU spatial representation supplied by the prepared basin dataset.
 
-**Lumped configuration**  
+**Lumped configuration**
+
 Represents the basin using a single lumped HRU while retaining the corresponding basin-level forcing and parameter information required by SUMMA.
 
 The workflow provides dedicated lumped versions of the major processing stages, including:
@@ -541,17 +605,16 @@ The manual contains:
 
 Machine-specific ARC paths, example basin collections, test job IDs, Slurm limits, and detailed command sequences belong in the manual rather than in this README.
 
-
 ## References
 
-Clark, M. P., Nijssen, B., Lundquist, J. D., Kavetski, D., Rupp, D. E., Woods, R. A., et al. (2015a). A unified approach for process-based hydrologic modeling: 1. Modeling concept. *Water Resources Research*, **51**, 2498–2514. https://doi.org/10.1002/2015WR017198
+Clark, M. P., Nijssen, B., Lundquist, J. D., Kavetski, D., Rupp, D. E., Woods, R. A., et al. (2015a). A unified approach for process-based hydrologic modeling: 1. Modeling concept. **Water Resources Research**, **51**, 2498–2514. https://doi.org/10.1002/2015WR017198
 
-Clark, M. P., Nijssen, B., Lundquist, J. D., Kavetski, D., Rupp, D. E., Woods, R. A., et al. (2015b). A unified approach for process-based hydrologic modeling: 2. Model implementation and case studies. *Water Resources Research*, **51**, 2515–2542. https://doi.org/10.1002/2015WR017200
+Clark, M. P., Nijssen, B., Lundquist, J. D., Kavetski, D., Rupp, D. E., Woods, R. A., et al. (2015b). A unified approach for process-based hydrologic modeling: 2. Model implementation and case studies. **Water Resources Research**, **51**, 2515–2542. https://doi.org/10.1002/2015WR017200
 
-Knoben, W. J. M., Clark, M. P., Bales, J., Bennett, A., Gharari, S., Marsh, C. B., Nijssen, B., Pietroniro, A., Spiteri, R. J., Tang, G., Tarboton, D. G., & Wood, A. W. (2022). Community Workflows to Advance Reproducibility in Hydrologic Modeling: Separating model-agnostic and model-specific configuration steps in applications of large-domain hydrologic models. *Water Resources Research*, **58**, e2021WR031753. https://doi.org/10.1029/2021WR031753
+Knoben, W. J. M., Clark, M. P., Bales, J., Bennett, A., Gharari, S., Marsh, C. B., Nijssen, B., Pietroniro, A., Spiteri, R. J., Tang, G., Tarboton, D. G., & Wood, A. W. (2022). Community Workflows to Advance Reproducibility in Hydrologic Modeling: Separating model-agnostic and model-specific configuration steps in applications of large-domain hydrologic models. **Water Resources Research**, **58**, e2021WR031753. https://doi.org/10.1029/2021WR031753
 
-Lin, P., Pan, M., Beck, H. E., Yang, Y., Yamazaki, D., Frasson, R., et al. (2019). Global reconstruction of naturalized river flows at 2.94 million reaches. *Water Resources Research*, **55**, 6499–6516. https://doi.org/10.1029/2019WR025287
+Lin, P., Pan, M., Beck, H. E., Yang, Y., Yamazaki, D., Frasson, R., et al. (2019). Global reconstruction of naturalized river flows at 2.94 million reaches. **Water Resources Research**, **55**, 6499–6516. https://doi.org/10.1029/2019WR025287
 
-Mizukami, N., Clark, M. P., Sampson, K., Nijssen, B., Mao, Y., McMillan, H., et al. (2016). mizuRoute version 1: A river network routing tool for a continental domain water resources applications. *Geoscientific Model Development*, **9**, 2223–2238. https://doi.org/10.5194/gmd-9-2223-2016
+Mizukami, N., Clark, M. P., Sampson, K., Nijssen, B., Mao, Y., McMillan, H., et al. (2016). mizuRoute version 1: A river network routing tool for a continental domain water resources applications. **Geoscientific Model Development**, **9**, 2223–2238. https://doi.org/10.5194/gmd-9-2223-2016
 
-Yamazaki, D., Ikeshima, D., Sosa, J., Bates, P. D., Allen, G. H., & Pavelsky, T. M. (2019). MERIT Hydro: A high-resolution global hydrography map based on latest topography dataset. *Water Resources Research*, **55**, 5053–5073. https://doi.org/10.1029/2019WR024873
+Yamazaki, D., Ikeshima, D., Sosa, J., Bates, P. D., Allen, G. H., & Pavelsky, T. M. (2019). MERIT Hydro: A high-resolution global hydrography map based on latest topography dataset. **Water Resources Research**, **55**, 5053–5073. https://doi.org/10.1029/2019WR024873

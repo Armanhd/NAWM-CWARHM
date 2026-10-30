@@ -7,11 +7,11 @@ Generate domain-specific CWARHM multibasin control files.
 The script reads a domain inventory CSV and uses a validated CWARHM
 control file as a template.
 
-Default inventory:
-    0_control_files/MERIT_Pfaf3_control_file_inputs.csv
+Default inventory (FIR CAMELS-SPAT-MX):
+    0_control_files/CAMELS_MX_control_file_inputs.csv
 
-Default template:
-    0_control_files/control_MERIT_717.txt
+Default template (FIR CAMELS-SPAT-MX):
+    0_control_files/control_CAMELS_MX_template.txt
 
 Generated controls:
     control_<domain_name>.txt
@@ -94,12 +94,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 CWARHM_ROOT = SCRIPT_DIR.parent
 CONTROL_DIR = CWARHM_ROOT / "0_control_files"
 
-CSV_FILE = CONTROL_DIR / "MERIT_Pfaf3_control_file_inputs.csv"
-DEFAULT_TEMPLATE = CONTROL_DIR / "control_MERIT_717.txt"
-
-SHARED_SOIL_CLASS_DIR = Path(
-    "/work/comphyd_lab/data/geospatial-data/soil_classes"
-)
+CSV_FILE = CONTROL_DIR / "CAMELS_MX_control_file_inputs.csv"
+DEFAULT_TEMPLATE = CONTROL_DIR / "control_CAMELS_MX_template.txt"
 
 DEFAULT_BBOX_BUFFER = 0.25
 
@@ -905,28 +901,36 @@ def validate_domain_row(
     }
 
 
-def validate_shared_data():
+def validate_shared_data(template_lines):
+    """Use the soil-class source configured in the selected control template."""
+    soil_value = None
 
-    if not SHARED_SOIL_CLASS_DIR.is_dir():
+    for line in template_lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "|" not in line:
+            continue
+        key, value = line.split("|", 1)
+        if key.strip() == "parameter_soil_raw_path":
+            soil_value = value.split("#", 1)[0].strip()
+            break
 
-        raise FileNotFoundError(
-            "Shared soil-class directory "
-            "not found:\n"
-            f"{SHARED_SOIL_CLASS_DIR}"
+    if not soil_value or soil_value == "default":
+        raise ValueError(
+            "Set parameter_soil_raw_path in the template to an "
+            "existing FIR soil-class directory."
         )
 
-    soil_class_file = (
-        SHARED_SOIL_CLASS_DIR
-        / "soil_classes.tif"
-    )
-
-    if not soil_class_file.exists():
-
+    soil_dir = Path(soil_value).expanduser().resolve()
+    if not soil_dir.is_dir():
         raise FileNotFoundError(
-            "Shared soil-class raster "
-            "not found:\n"
-            f"{soil_class_file}"
+            f"Shared soil-class directory not found:\n{soil_dir}"
         )
+    soil_file = soil_dir / "soil_classes.tif"
+    if not soil_file.is_file():
+        raise FileNotFoundError(
+            f"Shared soil-class raster not found:\n{soil_file}"
+        )
+    return soil_dir
 
 
 # ============================================================
@@ -938,6 +942,7 @@ def build_control(
     row,
     bbox_buffer,
     emearth_precip,
+    soil_dir,
 ):
 
     validated = validate_domain_row(
@@ -1012,7 +1017,7 @@ def build_control(
 
         "parameter_soil_raw_path":
             str(
-                SHARED_SOIL_CLASS_DIR
+                soil_dir
             ),
 
         "parameter_soil_domain_path":
@@ -1125,8 +1130,6 @@ def main():
             "--bbox-buffer cannot be negative."
         )
 
-    validate_shared_data()
-
     rows = read_domain_table(
         csv_file
     )
@@ -1199,6 +1202,7 @@ def main():
             template_file
         )
     )
+    soil_dir = validate_shared_data(template_lines)
 
     print()
     print("=" * 78)
@@ -1255,7 +1259,7 @@ def main():
 
     print(
         f"Soil source      : "
-        f"{SHARED_SOIL_CLASS_DIR}"
+        f"{soil_dir}"
     )
 
     print(
@@ -1307,6 +1311,7 @@ def main():
             row,
             args.bbox_buffer,
             args.emearth_precip,
+            soil_dir,
         )
 
         print(
@@ -1524,7 +1529,7 @@ def main():
 
     print(
         f"  "
-        f"{SHARED_SOIL_CLASS_DIR / 'soil_classes.tif'}"
+        f"{soil_dir / 'soil_classes.tif'}"
     )
 
     print()
