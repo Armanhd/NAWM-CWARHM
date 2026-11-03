@@ -798,7 +798,7 @@ print(
 # EASYMORE SETUP
 # ============================================================
 
-esmr = easymore.Easymore()
+esmr = easymore.easymore()
 
 
 esmr.author_name = (

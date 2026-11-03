@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-CWARHM="/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin"
+CWARHM="/home/armanhad/projects/rrg-mclark/armanhad/NAWM-CWARHM-MX"
 SCRIPT_DIR="${CWARHM}/4b_remapping/2_forcing"
 
 PYTHON_SCRIPT="${SCRIPT_DIR}/1_create_lumped_forcing_remapping.py"
@@ -50,7 +50,7 @@ DOMAIN=$(awk -F'|' '
     }
 ' "$CONTROL_FILE")
 
-module load conda/base
+source "${CWARHM}/load_nwam_fir.sh"
 
 mkdir -p "${SCRIPT_DIR}/slurm_logs"
 
@@ -65,8 +65,7 @@ echo "Control     : ${CONTROL_FILE}"
 echo "Start       : $(date)"
 echo
 
-conda run --no-capture-output -n nwam \
-    python "$PYTHON_SCRIPT" \
+python "$PYTHON_SCRIPT" \
     "$CONTROL_FILE"
 
 echo

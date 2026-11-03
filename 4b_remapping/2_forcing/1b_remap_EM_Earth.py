@@ -704,7 +704,7 @@ print(f"Remap folder : {intersect_path}")
 # ============================================================
 
 # Keep the constructor currently used by the NWAM environment.
-esmr = easymore.Easymore()
+esmr = easymore.easymore()
 
 
 esmr.author_name = (

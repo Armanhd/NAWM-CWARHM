@@ -522,7 +522,7 @@ case_name = (
 
 remap_files = sorted(
     remap_dir.glob(
-        f"{case_name}_remapping_file_*.csv"
+        f"{case_name}_remapping.csv"
     )
 )
 
@@ -781,12 +781,15 @@ def remap_month(
     )
 
 
+    # EASYMORE names outputs using the first source timestamp.
+    with xr.open_dataset(forcing_file) as source_ds:
+        first_time = source_ds["time"].values[0]
+
+    timestamp = str(first_time)[:19].replace("T", "-").replace(":", "-")
+
     expected_output = (
         output_dir
-        / (
-            f"{case_name}_remapped_"
-            f"{forcing_file.name}"
-        )
+        / f"{case_name}_remapped_{timestamp}.nc"
     )
 
 
@@ -885,7 +888,7 @@ def remap_month(
     # EASYMORE
     # --------------------------------------------------------
 
-    esmr = easymore.Easymore()
+    esmr = easymore.easymore()
 
 
     esmr.case_name = (

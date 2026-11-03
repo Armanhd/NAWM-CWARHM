@@ -14,7 +14,9 @@ if [[ -n "${VIRTUAL_ENV:-}" ]]; then
         echo "ERROR: Deactivate the current virtual environment first."
         return 1
     fi
-    deactivate
+    if declare -F deactivate >/dev/null; then
+        deactivate
+    fi
 fi
 
 # FIR software modules.

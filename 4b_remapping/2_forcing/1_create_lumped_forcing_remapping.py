@@ -392,7 +392,7 @@ for product, cfg in PRODUCTS.items():
     print(f"Remap output    : {remap_dir}")
     print(f"Forcing output  : {output_dir}")
 
-    esmr = easymore.Easymore()
+    esmr = easymore.easymore()
 
     esmr.case_name = case_name
 
@@ -500,10 +500,13 @@ for product, cfg in PRODUCTS.items():
 
     for src in remap_files:
 
-        dst = (
-            remap_dir
-            / src.name
-        )
+        if (
+            src.suffix.lower() == ".csv"
+            and "remapping" in src.stem
+        ):
+            dst = remap_dir / f"{case_name}_remapping.csv"
+        else:
+            dst = remap_dir / src.name
 
         copy2(
             src,

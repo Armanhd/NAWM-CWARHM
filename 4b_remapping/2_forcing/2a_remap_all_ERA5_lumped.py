@@ -593,39 +593,12 @@ case_name = (
 )
 
 
-remap_files = sorted(
-    remap_dir.glob(
-        f"{case_name}_remapping_file_*.csv"
+remap_csv = remap_dir / f"{case_name}_remapping.csv"
+
+if not remap_csv.is_file():
+    raise FileNotFoundError(
+        f"Lumped remapping CSV not found: {remap_csv}"
     )
-)
-
-
-if not remap_files:
-
-    # Fallback to a broader search in case an EASYMORE version
-    # produced a slightly different hashed filename.
-    remap_files = sorted(
-        remap_dir.glob(
-            "*ERA5*remapping_file_*.csv"
-        )
-    )
-
-
-if not remap_files:
-
-    raise RuntimeError(
-        "No lumped ERA5 EASYMORE remapping CSV found in:\n"
-        f"{remap_dir}\n\n"
-        "Run the lumped forcing-remapping initialization first."
-    )
-
-
-# Use newest mapping if older files remain after re-running Step 4.
-
-remap_csv = max(
-    remap_files,
-    key=lambda path: path.stat().st_mtime
-)
 
 
 # ============================================================
@@ -895,12 +868,17 @@ def remap_month(
         )
 
 
+    # EASYMORE uses the first NetCDF timestamp in its filename.
+    with xr.open_dataset(forcing_file) as source_ds:
+        first_time = source_ds["time"].values[0]
+
+    timestamp = str(first_time)[:19].replace(
+        "T", "-"
+    ).replace(":", "-")
+
     expected_output = (
         output_dir
-        / (
-            f"{case_name}_remapped_"
-            f"{forcing_file.name}"
-        )
+        / f"{case_name}_remapped_{timestamp}.nc"
     )
 
 
@@ -978,7 +956,7 @@ def remap_month(
     # EASYMORE
     # --------------------------------------------------------
 
-    esmr = easymore.Easymore()
+    esmr = easymore.easymore()
 
 
     esmr.case_name = (

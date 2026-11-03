@@ -52,7 +52,7 @@ set -euo pipefail
 # PATHS
 # ============================================================
 
-CWARHM="/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin"
+CWARHM="/home/armanhad/projects/rrg-mclark/armanhad/NAWM-CWARHM-MX"
 
 SCRIPT_DIR="${CWARHM}/4b_remapping/2_forcing"
 
@@ -170,7 +170,7 @@ TASK_COUNT=$((END_INDEX - START_INDEX + 1))
 # ENVIRONMENT
 # ============================================================
 
-module load conda/base
+source "${CWARHM}/load_nwam_fir.sh"
 
 cd "${SCRIPT_DIR}"
 
@@ -378,8 +378,7 @@ for TASK_INDEX in $(seq "${START_INDEX}" "${END_INDEX}"); do
     # RUN LUMPED ERA5 REMAPPING
     # --------------------------------------------------------
 
-    if conda run --no-capture-output -n nwam \
-        python "${PYTHON_SCRIPT}" \
+    if python "${PYTHON_SCRIPT}" \
         "${CONTROL_FILE}" \
         "${YEAR}" \
         "${MONTH}"

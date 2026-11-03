@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-CWARHM="/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin"
+CWARHM="/home/armanhad/projects/rrg-mclark/armanhad/NAWM-CWARHM-MX"
 SCRIPT_DIR="${CWARHM}/4b_remapping/2_forcing"
 
 ERA5_SCRIPT="${SCRIPT_DIR}/1a_remap_ERA5.py"
@@ -51,7 +51,7 @@ DOMAIN=$(awk -F'|' '
     }
 ' "${CONTROL_FILE}")
 
-module load conda/base
+source "${CWARHM}/load_nwam_fir.sh"
 
 mkdir -p "${SCRIPT_DIR}/slurm_logs"
 
@@ -64,14 +64,12 @@ echo "Control file : ${CONTROL_FILE}"
 echo
 
 echo "Creating ERA5 remapping..."
-conda run --no-capture-output -n nwam \
-    python "${ERA5_SCRIPT}" \
+python "${ERA5_SCRIPT}" \
     "${CONTROL_FILE}"
 
 echo
 echo "Creating EM-Earth remapping..."
-conda run --no-capture-output -n nwam \
-    python "${EMEARTH_SCRIPT}" \
+python "${EMEARTH_SCRIPT}" \
     "${CONTROL_FILE}"
 
 echo
