@@ -1,4 +1,4 @@
-# CAMELS-MX — Lumped-only NAWM-CWARHM manual
+# CAMELS-MX — Lumped-only NAWM-CWARHM manual(ARC)
 
 **Branch:** `CAMELS_SPAT_MX` · **Status:** demonstration / work in progress · **Last updated:** 28 October 2026  
 **Companion:** [Distributed multibasin manual](1_CAMELS_MX_Distributed_Multibasin_Manual.md) · [Repository README](../README.md)
