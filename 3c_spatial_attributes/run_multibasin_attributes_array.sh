@@ -13,11 +13,11 @@ TASK_FILE="${1:?Usage: sbatch run_multibasin_attributes_array.sh TASK_FILE}"
 # Resolve repository from the Slurm submission directory.
 REPO_DIR="${SLURM_SUBMIT_DIR:?}"
 
-source "$REPO_DIR/load_nwam_fir.sh"
+source "$REPO_DIR/load_nwam_step11.sh"
 
 cd "$REPO_DIR/3c_spatial_attributes"
 
-python run_multibasin_attributes.py \
+LD_PRELOAD="$NWAM_STEP11_MPI_LIB" python run_multibasin_attributes.py \
     --task-file "$TASK_FILE" \
     --index "${SLURM_ARRAY_TASK_ID:?}" \
     --execute \

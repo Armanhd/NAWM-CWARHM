@@ -649,46 +649,74 @@ def main():
 
             rows.append(row)
 
-        # Check for missing or invalid numerical results.
+        # Separate missing raster coverage from invalid calculations.
+        dependencies = {
+            "mean_annual_precipitation": {"prec"},
+            "mean_annual_temperature": {"tavg"},
+            "mean_annual_pet": {"pet"},
+            "annual_aridity_index": {"prec", "pet"},
+            "annual_snow_fraction": {"prec", "snow"},
+            "precipitation_seasonality": {"prec"},
+            "temperature_annual_range": {"tavg"},
+            "climate_index_im": {"climate_index_im"},
+            "climate_index_imr": {"climate_index_imr"},
+            "climate_index_fs": {"climate_index_fs"},
+        }
+
+        missing_sources = {}
+        for item in coverage[mode]:
+            if item["valid_pixels"] == 0:
+                missing_sources.setdefault(
+                    item["hruId"], set()
+                ).add(item["variable"])
+
+        missing_coverage = []
         failures = []
 
         for row in rows:
-            invalid = [
-                name for name in descriptors
-                if not np.isfinite(row[name])
-            ]
+            hru_id = row["hruId"]
+            missing = missing_sources.get(hru_id, set())
 
-            if invalid:
-                failures.append(
-                    (row["hruId"], invalid)
-                )
+            for name in descriptors:
+                if not np.isfinite(row[name]):
+                    if dependencies[name] & missing:
+                        missing_coverage.append((hru_id, name))
+                    else:
+                        failures.append(
+                            (hru_id, f"Unexplained non-finite {name}")
+                        )
 
+            snow_fraction = row["annual_snow_fraction"]
             if (
-                np.isfinite(row["annual_snow_fraction"])
-                and not (
-                    -1e-6 <= row["annual_snow_fraction"]
-                    <= 1 + 1e-6
-                )
+                np.isfinite(snow_fraction)
+                and not (-1e-6 <= snow_fraction <= 1 + 1e-6)
             ):
                 failures.append(
-                    (
-                        row["hruId"],
-                        ["annual_snow_fraction outside 0-1"],
+                    (hru_id, "annual_snow_fraction outside 0-1")
+                )
+
+            for name in (
+                "mean_annual_precipitation",
+                "mean_annual_pet",
+            ):
+                if np.isfinite(row[name]) and row[name] < 0:
+                    failures.append(
+                        (hru_id, f"Negative {name}")
                     )
-                )
-
-            if (
-                row["mean_annual_precipitation"] < 0
-                or row["mean_annual_pet"] < 0
-            ):
-                failures.append(
-                    (row["hruId"], ["negative annual total"])
-                )
 
         if failures:
             raise RuntimeError(
-                f"WorldClim QA failed in {mode}: "
+                f"WorldClim physical/numerical QA failed in {mode}: "
                 f"{failures[:10]}"
+            )
+
+        if missing_coverage:
+            print(
+                f"WARNING: {len(set(h for h, _ in missing_coverage))} "
+                f"HRUs have missing WorldClim source coverage; "
+                f"{len(missing_coverage)} attributes retained as NaN. "
+                f"Examples: {missing_coverage[:10]}",
+                flush=True,
             )
 
         if mode == "distributed":
