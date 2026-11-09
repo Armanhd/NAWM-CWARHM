@@ -8,24 +8,6 @@
 
 set -euo pipefail
 
-# ============================================================
-# LUMPED CATCHMENT ARRAY WORKER
-# ============================================================
-#
-# One Slurm array task processes one basin.
-#
-# Input task-file format:
-#
-#   /absolute/path/to/control_<DOMAIN>_lumped.txt
-#
-# The worker creates:
-#
-#   domain_<DOMAIN>/lumped/shapefiles/catchment/
-#       <DOMAIN>_lumped_basin.shp
-#
-# Existing distributed catchments are read only.
-# ============================================================
-
 if [ "$#" -ne 1 ]; then
     echo "Usage: $0 <lumped_basin_task_file>"
     exit 1
@@ -58,7 +40,9 @@ if [ ! -f "$CONTROL_FILE" ]; then
     exit 1
 fi
 
-SCRIPT_DIR="/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin/00_prepare_domain_shapefiles"
+SCRIPT_DIR="/home/armanhad/projects/rrg-mclark/armanhad/NAWM-CWARHM/00_prepare_domain_shapefiles"
+
+source "${SCRIPT_DIR}/../load_nwam_fir.sh"
 
 echo "============================================================"
 echo "LUMPED CATCHMENT ARRAY TASK"

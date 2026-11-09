@@ -1,9 +1,10 @@
 # CAMELS-MX — Distributed NAWM-CWARHM multibasin manual (FIR)
 
 **Branch:** `CAMELS_SPAT_MX` · **Platform:** Alliance FIR · **Updated:** 30 October 2026
+
 **Companion:** [Lumped-only FIR manual](2_CAMELS_MX_Lumpedonly_FIR_Manual.md)
 
-> **Verified on FIR:** All 21 TDX-Hydro basin shapefile sets were located (18 `tdx_clipped`, 3 `tdx_nested_preview`). All 21 distributed controls were generated and inspected; the basin task file has 21 rows and the 1950–2019 monthly task file has 17,640 rows. **Later processing stages have not been validated for all 21 basins on FIR.** Commands below for Stage 00 onward are planned runs; inspect the FIR Slurm wrappers and test a single basin/job before submitting large arrays.
+> **Verified on FIR:** All 21 TDX-Hydro basin shapefile sets were located (18 `tdx_clipped`, 3 `tdx_nested_preview`). All 21 distributed controls were generated and inspected; the basin task file has 21 rows and the 1950–2019 monthly task file has 17,640 rows. All 21 lumped controls also exist. The MX template and all 42 basin controls now include Step 11 spatial-attribute settings. Distributed controls select `distributed`; lumped controls select `lumped`. New spatial-attribute scripts and seven updated lumped shell runners have been copied into the MX checkout. **Later processing stages have not been validated for all 21 basins on FIR.** Commands below for Stage 00 onward are planned runs; inspect the FIR Slurm wrappers and test a single basin/job before submitting large arrays.
 
 ## 0. FIR configuration and source datasets
 
@@ -12,7 +13,7 @@
 | Code | `CAMELS_SPAT_MX` branch of `Armanhd/NAWM-CWARHM` |
 | Python | FIR modules plus `source load_nwam_fir.sh` (Python 3.12.4) |
 | Inventory | `0_control_files/CAMELS_MX_control_file_inputs.csv` (21 basins) |
-| Template | `0_control_files/templates/control_CAMELS_MX_template.txt` |
+| Template | `0_control_files/control_CAMELS_MX_template.txt` |
 | TDX-Hydro exports | `/project/6079554/share/camels-mx/basin_delineation/MX_*/cwarhm_exports/` |
 | Shared output root | `/project/6079554/share/camels-mx/nawm_cwarhm_output` |
 | Shared soil raster | `/project/6102189/data/geospatial-data/soil_classes/soil_classes.tif` |
@@ -20,6 +21,8 @@
 | EM-Earth precipitation | `prcp_corrected` (SUMMA variable remains `pptrate`) |
 | Time period | `1950,2019` (840 months per basin) |
 | DEM / vegetation | Existing MERIT Hydro DEM and MODIS workflow, verify Mexico coverage |
+| MODIS land-cover year | Existing MX configuration: 2022 |
+| Additional spatial attributes | Step 11 source settings in each control; execution instructions in the companion manual |
 
 **TDX source folder exception:** `MX_12428`, `MX_12496`, and `MX_12532` use `tdx_nested_preview/shapefiles`; the other 18 use `tdx_clipped/shapefiles`. The corrected inventory records their actual locations.
 
@@ -28,11 +31,14 @@
 ```bash
 git clone --branch CAMELS_SPAT_MX --single-branch \
   https://github.com/Armanhd/NAWM-CWARHM.git NAWM-CWARHM-MX
+
 cd NAWM-CWARHM-MX
 source load_nwam_fir.sh
+
 export CWARHM_ROOT="$(pwd -P)"
 export CONTROL_DIR="$CWARHM_ROOT/0_control_files"
 export DATA_ROOT=/project/6079554/share/camels-mx/nawm_cwarhm_output
+
 python -c 'import geopandas, rasterio, netCDF4; print("FIR dependencies OK")'
 ```
 
@@ -42,9 +48,10 @@ The validated developer checkout is `/home/armanhad/projects/rrg-mclark/armanhad
 
 ```bash
 cd "$CWARHM_ROOT/00_prepare_domain_shapefiles"
+
 python 0_generate_multibasin_control_files.py \
   --csv ../0_control_files/CAMELS_MX_control_file_inputs.csv \
-  --template ../0_control_files/templates/control_CAMELS_MX_template.txt \
+  --template ../0_control_files/control_CAMELS_MX_template.txt \
   --prefix MX_ --emearth-precip prcp_corrected --dry-run
 ```
 
@@ -53,26 +60,32 @@ After reviewing the 21 selected basins and path settings, create the controls. O
 ```bash
 python 0_generate_multibasin_control_files.py \
   --csv ../0_control_files/CAMELS_MX_control_file_inputs.csv \
-  --template ../0_control_files/templates/control_CAMELS_MX_template.txt \
+  --template ../0_control_files/control_CAMELS_MX_template.txt \
   --prefix MX_ --emearth-precip prcp_corrected
 ```
 
-If the template is still at the original path in your clone, use `../0_control_files/control_CAMELS_MX_template.txt`; moving it into `templates/` avoids the task generator mistaking its `domain_name` for an actual basin. The working FIR template was moved to that subdirectory.
+The active template is `0_control_files/control_CAMELS_MX_template.txt`. Do not use an older copy under `templates/`. When generating task inventories, verify that only the 21 numeric `control_MX_<ID>.txt` basin controls are selected; the template must not become a basin task.
 
 ```bash
-find "$CONTROL_DIR" -maxdepth 1 -name 'control_MX_*.txt' ! -name '*_lumped.txt' | wc -l
+find "$CONTROL_DIR" -maxdepth 1 \
+  -name 'control_MX_*.txt' ! -name '*_lumped.txt' | wc -l
 # Expected: 21
+
 for f in "$CONTROL_DIR"/control_MX_*.txt; do
   grep -E '^(root_path|domain_name|forcing_raw_time|forcing_emearth_precip|parameter_soil_raw_path)' "$f"
 done
 ```
 
+The current template and all existing MX basin controls include the additional spatial-attribute source settings. Preserve each basin's existing geometry, forcing extent, precipitation selection, and model-output paths when updating these settings.
+
 ## Step 2 — Generate distributed basin/month task files
 
 ```bash
 cd "$CWARHM_ROOT/00_prepare_domain_shapefiles"
+
 python 0b_generate_multibasin_month_tasks.py \
   --prefix MX_ --batch-name CAMELS_MX_all
+
 wc -l ../0_control_files/multibasin_preprocessing_CAMELS_MX_all.txt \
       ../0_control_files/month_tasks_CAMELS_MX_all.txt
 # Expected: 21 basin tasks; 17,640 month tasks
@@ -80,30 +93,46 @@ wc -l ../0_control_files/multibasin_preprocessing_CAMELS_MX_all.txt \
 
 This step was **completed and checked on FIR**. Each basin has 840 months (1950–2019). Task files contain **checkout-specific absolute control paths**. Regenerate the task files after cloning into a different location, rather than reusing paths committed by another user.
 
+Check that the generated basin task file contains each MX basin once and does not include the template or lumped controls.
+
 ## Step 2A — Load batch variables in a shell
 
 The working checkout has a root-level `set_batch.sh`. Verify it points to this 21-basin batch. For another clone, set the variables as follows:
 
 ```bash
 cd "$CWARHM_ROOT"
+
 export BASIN_TASK="$CONTROL_DIR/multibasin_preprocessing_CAMELS_MX_all.txt"
 export MONTH_TASK="$CONTROL_DIR/month_tasks_CAMELS_MX_all.txt"
+
 export NBASIN="$(wc -l < "$BASIN_TASK")"
 export NMONTH="$(wc -l < "$MONTH_TASK")"
+
 echo "NBASIN=$NBASIN NMONTH=$NMONTH"
 # Expected: NBASIN=21 NMONTH=17640
 ```
 
-To use the existing configuration in the developer checkout, run `source set_batch.sh` and verify the two counts. Source these variables again in fresh shells or job scripts as appropriate.
+Use `source set_batch.sh` only after confirming that its paths select the MX checkout and the intended MX task files. The existing script must not be assumed to select Mexico merely because it is inside the MX repository. Set or source these variables again in fresh shells or job scripts as appropriate.
+
+### FIR runner compatibility — check before submitting jobs
+
+Some copied shell scripts still contain absolute paths to the original `NAWM-CWARHM` checkout. Before submitting a runner, confirm that its script and control paths point to `NAWM-CWARHM-MX` and that its environment setup is appropriate for FIR.
+
+The distributed parameter-remapping and model-input runners shown in Steps 8–9 still require FIR compatibility review. Their commands are planned instructions, not confirmation that those runners are ready or that all basins have passed.
+
+The updated lumped runners load the FIR environment, but their copied absolute repository paths also need to point to MX before independent MX execution. Environment compatibility does not make the inherited LST logic valid for Mexico.
+
+Some parameter-preprocessing and recovery scripts use the separate `nwam-fir-step7` environment. Preserve that distinction until its NumPy/GDAL requirements have been tested in a common environment.
 
 ## Step 3 — Prepare distributed domain shapefiles and forcing grids
 
 Stage 00 processes TDX-Hydro source catchment and river network into `nawm_cwarhm_output/domain_MX_*/shapefiles/` without editing the sources. `1_prepare_river_network.py` converts `lengthkm` into metres in `length_m`; `2_prepare_catchment.py` prepares one HRU per GRU and recalculates area in square metres; `3_report_control_values.py` recalculates the forcing extent and outlet settings.
 
-**Historical ARC validation for MX_1023 (not a FIR validation):**
+**Single-basin preparation example:** Historical results do not establish successful preparation of all 21 basins in the current FIR checkout.
 
 ```bash
 cd "$CWARHM_ROOT/00_prepare_domain_shapefiles"
+
 bash run_prepare_domain_shapefiles.sh "$CONTROL_DIR/control_MX_1023.txt"
 # Expected: DOMAIN PREPARATION COMPLETED SUCCESSFULLY
 ```
@@ -115,8 +144,10 @@ For the remaining basins, use the existing Stage 00 Slurm wrapper **after confir
 ```bash
 cd "$CWARHM_ROOT/00_prepare_domain_shapefiles"
 mkdir -p slurm_logs
+
 sbatch --array=0-$((NBASIN-1))%4 \
   run_multibasin_preprocessing_array.sh "$BASIN_TASK"
+
 squeue -u "$USER"
 ```
 
@@ -124,8 +155,11 @@ Check for the worker's `DOMAIN PREPARATION COMPLETED SUCCESSFULLY` message and i
 
 ```bash
 for d in MX_1023 MX_11028; do
-  test -s "$DATA_ROOT/domain_${d}/shapefiles/catchment/${d}_catchment.shp" && echo "$d catchment OK"
-  test -s "$DATA_ROOT/domain_${d}/shapefiles/river_network/${d}_river_network.shp" && echo "$d river OK"
+  test -s "$DATA_ROOT/domain_${d}/shapefiles/catchment/${d}_catchment.shp" \
+    && echo "$d catchment OK"
+
+  test -s "$DATA_ROOT/domain_${d}/shapefiles/river_network/${d}_river_network.shp" \
+    && echo "$d river OK"
 done
 ```
 
@@ -136,11 +170,14 @@ The existing processing is month-task driven. The configured EM-Earth precipitat
 ```bash
 cd "$CWARHM_ROOT/3a_forcing/0_existing_forcing"
 mkdir -p slurm_logs
+
 CHUNK_SIZE=10
 NCHUNKS=$(( (NMONTH + CHUNK_SIZE - 1) / CHUNK_SIZE ))
+
 # Submit only after validating one basin-month and the Slurm worker's arguments:
 sbatch --array=0-$((NCHUNKS-1)) \
   run_prepare_era5_array.sh "$MONTH_TASK" "$CHUNK_SIZE"
+
 sbatch --array=0-$((NCHUNKS-1)) \
   run_prepare_emearth_array.sh "$MONTH_TASK" "$CHUNK_SIZE"
 ```
@@ -156,13 +193,17 @@ Create EASYMORE weights once per basin, then remap monthly forcing using the tas
 ```bash
 cd "$CWARHM_ROOT/4b_remapping/2_forcing"
 mkdir -p slurm_logs
+
 sbatch --array=0-$((NBASIN-1))%4 \
   run_create_forcing_remapping_array.sh "$BASIN_TASK"
+
 # After weights pass QA:
 CHUNK_SIZE=10
 NCHUNKS=$(( (NMONTH + CHUNK_SIZE - 1) / CHUNK_SIZE ))
+
 sbatch --array=0-$((NCHUNKS-1)) \
   run_remap_ERA5_array.sh "$MONTH_TASK" "$CHUNK_SIZE"
+
 sbatch --array=0-$((NCHUNKS-1)) \
   run_remap_EM_Earth_array.sh "$MONTH_TASK" "$CHUNK_SIZE"
 ```
@@ -173,8 +214,10 @@ sbatch --array=0-$((NCHUNKS-1)) \
 
 ```bash
 cd "$CWARHM_ROOT/4b_remapping/2_forcing"
+
 CHUNK_SIZE=10
 NCHUNKS=$(( (NMONTH + CHUNK_SIZE - 1) / CHUNK_SIZE ))
+
 sbatch --array=0-$((NCHUNKS-1)) \
   run_combine_forcing_array.sh "$MONTH_TASK" "$CHUNK_SIZE"
 ```
@@ -186,11 +229,14 @@ Expected location: `domain_MX_<ID>/forcing/4_SUMMA_input/NWAM_SUMMA_forcing_YYYY
 ```bash
 cd "$CWARHM_ROOT/3a_forcing/4_concat_summa_forcing"
 mkdir -p slurm_logs
+
 sbatch --array=0-$((NBASIN-1))%4 \
   run_concat_summa_forcing_array.sh "$BASIN_TASK"
 ```
 
 Output: `forcing/5_SUMMA_input_concat/`. The reference runner may define `START_YEAR`, `END_YEAR`, and months internally; inspect them against `forcing_raw_time` **before submitting**. Verify contiguous timestamps and HRU order.
+
+The MX distributed concatenation runner in the reviewed comparison uses one array task per basin. The separate MERIT workflow uses seven decade tasks per basin; do not transfer that array indexing into MX without deliberately changing its submission command and output expectations.
 
 ### Step 6B — Optional UTC-to-local-standard-time (LST)
 
@@ -200,9 +246,12 @@ Output: `forcing/5_SUMMA_input_concat/`. The reference runner may define `START_
 
 Current demonstration inputs: **MERIT Hydro DEM** (not TDX elevation), shared soil classes, and MODIS land cover. TDX-Hydro supplies the basin geometry only.
 
+The current MX configuration retains MODIS 2022. The additional Step 11 attribute settings do not change the existing model-input land-cover selection to the MERIT workflow's 2001–2022 range.
+
 ```bash
 cd "$CWARHM_ROOT/3b_parameters"
 mkdir -p slurm_logs
+
 sbatch --array=0-$((NBASIN-1))%4 \
   run_multibasin_parameter_data_preprocessing_array.sh "$BASIN_TASK"
 ```
@@ -211,6 +260,7 @@ For each basin verify:
 
 ```bash
 D=MX_1023
+
 for f in \
   "$DATA_ROOT/domain_${D}/parameters/dem/5_elevation/elevation.tif" \
   "$DATA_ROOT/domain_${D}/parameters/soilclass/2_soil_classes_domain/soil_classes.tif" \
@@ -223,9 +273,12 @@ Also check raster CRS, bounds, NoData, resolution, and coverage over the actual 
 
 ## Step 8 — Map DEM/soil/land cover to distributed HRUs
 
+**Before submission:** complete the FIR/MX compatibility review of this runner, including its repository path and Python environment setup.
+
 ```bash
 cd "$CWARHM_ROOT/4b_remapping/1_topo"
 mkdir -p slurm_logs
+
 sbatch --array=0-$((NBASIN-1))%4 \
   run_multibasin_HRU_parameter_remapping_array.sh "$BASIN_TASK"
 ```
@@ -234,9 +287,12 @@ Verify intersection outputs under `shapefiles/catchment_intersection/with_dem/`,
 
 ## Step 9 — Generate distributed SUMMA and mizuRoute input files
 
+**Before submission:** complete the FIR/MX compatibility review of this runner, including its repository path and Python environment setup.
+
 ```bash
 cd "$CWARHM_ROOT/5_model_input"
 mkdir -p slurm_logs
+
 sbatch --array=0-$((NBASIN-1))%4 \
   run_multibasin_model_input_generation_array.sh "$BASIN_TASK"
 ```
@@ -257,6 +313,7 @@ For each basin, verify required files and NetCDF consistency. A basic file check
 while IFS= read -r control; do
   d=$(awk -F'|' '$1 ~ /^[[:space:]]*domain_name[[:space:]]*$/ {gsub(/[[:space:]]/,"",$2); print $2; exit}' "$control")
   r="$DATA_ROOT/domain_${d}"
+
   for f in settings/SUMMA/fileManager.txt settings/SUMMA/attributes.nc \
            settings/SUMMA/coldState.nc settings/SUMMA/trialParams.nc \
            settings/mizuRoute/topology.nc settings/mizuRoute/mizuroute.control; do
@@ -267,17 +324,44 @@ done < "$BASIN_TASK"
 
 Verify **each** NetCDF scientifically as well as structurally: no `-999` in elevation/soil/vegetation, consistent HRU IDs and ordering across forcing, attributes, cold state and trial parameters; connected river segment IDs; valid outlet(s); no unexpected missing forcing months; consistent UTC time axis. The current manual covers **model inputs**, not validated SUMMA or mizuRoute simulation performance.
 
+## Step 11 — Additional spatial attributes
+
+After distributed and lumped model-input preparation has passed verification, follow Step 11 in the [lumped-only FIR manual](2_CAMELS_MX_Lumpedonly_FIR_Manual.md).
+
+Step 11 calculates terrain, soil properties, geology, lake, land-cover, vegetation, and optional WorldClim attributes. Dataset extractors are in `3b_parameters/`; execution, consolidation, metadata, and QA tools are in `3c_spatial_attributes/`.
+
+The final outputs are:
+
+| Configuration | Consolidated output |
+|---|---|
+| Distributed | `domain_<DOMAIN>/attributes/<DOMAIN>_attributes.csv` |
+| Lumped | `domain_<DOMAIN>/lumped/attributes/<DOMAIN>_lumped_attributes.csv` |
+
+The current full schema, including WorldClim, contains 468 attribute rows. Validate the CSV schema and HRU identifiers against SUMMA, then review missing data and source coverage over Mexico.
+
+The current distributed MX controls select `attribute_processing_mode | distributed`; lumped controls select `lumped`. A combined Step 11 run requires a deliberate `both` configuration, as described in the companion manual.
+
+Submit the current Step 11 Slurm wrapper from the MX repository root because it resolves the repository through `SLURM_SUBMIT_DIR`. Use absolute task-file paths.
+
+Step 11 is independent of forcing preparation and does not modify existing SUMMA or mizuRoute model inputs. Intermediate archiving is optional and should follow successful processing and QA.
+
 ## Handoff / operating notes
 
-1. **First priority:** complete and verify Stage 00 for the all 21 Mexican basins. Record failures individually; do not assume all pass because `MX_1023` passed.
+1. **First priority:** complete and verify Stage 00 for all 21 Mexican basins. Record failures individually; do not assume all pass because `MX_1023` passed.
 2. Confirm source meteorological, MERIT DEM, soil, and MODIS coverage and licenses for each study region before large Slurm runs.
 3. Regenerate all absolute-path task inventories on a new clone; do not overwrite modified distributed controls.
 4. Run one basin-month through forcing and one basin through parameter/model-input generation before scaling.
 5. Keep source TDX exports read-only. Intermediate outputs belong in `nawm_cwarhm_output/domain_MX_*/` and should not be committed to Git.
 6. The original 21 source exports are located; validate each independently before bulk processing.
 7. LST and other inherited CAMELS-SPAT-specific logic are **not automatically applicable to Mexico**.
-8. Use the [lumped-only manual](2_CAMELS_MX_Lumpedonly_Manual.md) after distributed catchments and shared source forcing/parameter rasters are ready.
+8. Use the [lumped-only manual](2_CAMELS_MX_Lumpedonly_FIR_Manual.md) after distributed catchments and shared source forcing/parameter rasters are ready.
+9. Complete Step 11 only after its required distributed and lumped basin inputs are ready. Structural QA does not establish complete scientific coverage.
+10. Confirm copied runners use the MX checkout rather than the original `NAWM-CWARHM` directory.
 
 ### Git and collaboration (FIR)
 
-Before committing, inspect `git status -sb` and `git diff --stat`. Commit reproducible scripts, the corrected inventory, template, manuals and environment setup; **do not commit** virtual environments, `slurm_logs/`, large data, credentials, cached wheels, or personal absolute-path task lists. Ensure shared-data ACLs permit collaborators to read input files and write output where required.
+Before committing, inspect `git status -sb` and `git diff --stat`. Confirm that the working branch is `CAMELS_SPAT_MX`.
+
+Commit reproducible scripts, the corrected inventory, template, manuals, central attribute metadata, and environment setup; **do not commit** virtual environments, `slurm_logs/`, large data, credentials, cached wheels, generated reports, temporary Step 11 control copies, or personal absolute-path task lists.
+
+Ensure shared-data ACLs permit collaborators to read input files and write output where required.

@@ -8,20 +8,9 @@
 
 set -euo pipefail
 
-# ============================================================
-# PATHS
-# ============================================================
-
-CWARHM="/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin"
-
+CWARHM="/home/armanhad/projects/rrg-mclark/armanhad/NAWM-CWARHM"
 SCRIPT_DIR="${CWARHM}/4b_remapping/2_forcing"
-
 PYTHON_SCRIPT="${SCRIPT_DIR}/3_combine_forcing_for_SUMMA_lumped.py"
-
-
-# ============================================================
-# ARGUMENTS
-# ============================================================
 
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
     echo "ERROR: Invalid number of arguments."
@@ -34,15 +23,8 @@ if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
     exit 1
 fi
 
-
 TASK_FILE=$(realpath "$1")
-
 CHUNK_SIZE="${2:-100}"
-
-
-# ============================================================
-# VALIDATE INPUTS
-# ============================================================
 
 if [ ! -f "${TASK_FILE}" ]; then
     echo "ERROR: Task file not found:"
@@ -50,13 +32,11 @@ if [ ! -f "${TASK_FILE}" ]; then
     exit 1
 fi
 
-
 if ! [[ "${CHUNK_SIZE}" =~ ^[0-9]+$ ]] || [ "${CHUNK_SIZE}" -lt 1 ]; then
     echo "ERROR: CHUNK_SIZE must be a positive integer."
     echo "Received: ${CHUNK_SIZE}"
     exit 1
 fi
-
 
 if [ -z "${SLURM_ARRAY_TASK_ID:-}" ]; then
     echo "ERROR: SLURM_ARRAY_TASK_ID is not defined."
@@ -64,54 +44,34 @@ if [ -z "${SLURM_ARRAY_TASK_ID:-}" ]; then
     exit 1
 fi
 
-
 if [ ! -f "${PYTHON_SCRIPT}" ]; then
     echo "ERROR: Lumped forcing-combination script not found:"
     echo "${PYTHON_SCRIPT}"
     exit 1
 fi
 
-
-# ============================================================
-# CALCULATE CHUNK RANGE
-# ============================================================
-
 TOTAL_TASKS=$(wc -l < "${TASK_FILE}")
 
 START_INDEX=$((SLURM_ARRAY_TASK_ID * CHUNK_SIZE))
 END_INDEX=$((START_INDEX + CHUNK_SIZE - 1))
-
 
 if [ "${START_INDEX}" -ge "${TOTAL_TASKS}" ]; then
     echo "ERROR: Chunk starts beyond end of task file."
     exit 1
 fi
 
-
 if [ "${END_INDEX}" -ge "${TOTAL_TASKS}" ]; then
     END_INDEX=$((TOTAL_TASKS - 1))
 fi
-
 
 START_LINE=$((START_INDEX + 1))
 END_LINE=$((END_INDEX + 1))
 TASK_COUNT=$((END_INDEX - START_INDEX + 1))
 
-
-# ============================================================
-# ENVIRONMENT
-# ============================================================
-
-module load conda/base
+source "${CWARHM}/load_nwam_fir.sh"
 
 cd "${SCRIPT_DIR}"
-
 mkdir -p slurm_logs
-
-
-# ============================================================
-# REPORT
-# ============================================================
 
 echo
 echo "======================================================================"
@@ -134,21 +94,12 @@ echo
 echo "Start time         : $(date)"
 echo
 
-
-# ============================================================
-# PROCESS CHUNK
-# ============================================================
-
 PROCESSED=0
 FAILED=0
 
-
 for TASK_INDEX in $(seq "${START_INDEX}" "${END_INDEX}"); do
-
     LINE_NUMBER=$((TASK_INDEX + 1))
-
     TASK_LINE=$(sed -n "${LINE_NUMBER}p" "${TASK_FILE}")
-
 
     if [ -z "${TASK_LINE}" ]; then
         echo
@@ -157,35 +108,27 @@ for TASK_INDEX in $(seq "${START_INDEX}" "${END_INDEX}"); do
         continue
     fi
 
-
     IFS=$'\t' read -r CONTROL_FILE YEAR MONTH <<< "${TASK_LINE}"
-
 
     if [ -z "${CONTROL_FILE:-}" ] || \
        [ -z "${YEAR:-}" ] || \
        [ -z "${MONTH:-}" ]; then
-
         echo
         echo "ERROR: Invalid task-file row:"
         echo "${TASK_LINE}"
-
         FAILED=$((FAILED + 1))
         continue
     fi
 
-
     CONTROL_FILE=$(realpath "${CONTROL_FILE}")
-
 
     if [ ! -f "${CONTROL_FILE}" ]; then
         echo
         echo "ERROR: Control file not found:"
         echo "${CONTROL_FILE}"
-
         FAILED=$((FAILED + 1))
         continue
     fi
-
 
     if ! [[ "${YEAR}" =~ ^[0-9]{4}$ ]]; then
         echo "ERROR: Invalid year: ${YEAR}"
@@ -193,20 +136,17 @@ for TASK_INDEX in $(seq "${START_INDEX}" "${END_INDEX}"); do
         continue
     fi
 
-
     if ! [[ "${MONTH}" =~ ^[0-9]{1,2}$ ]]; then
         echo "ERROR: Invalid month: ${MONTH}"
         FAILED=$((FAILED + 1))
         continue
     fi
 
-
     if [ "${MONTH}" -lt 1 ] || [ "${MONTH}" -gt 12 ]; then
         echo "ERROR: Month outside 1-12: ${MONTH}"
         FAILED=$((FAILED + 1))
         continue
     fi
-
 
     DOMAIN=$(awk -F'|' '
         /^[[:space:]]*domain_name[[:space:]]*\|/ {
@@ -218,20 +158,16 @@ for TASK_INDEX in $(seq "${START_INDEX}" "${END_INDEX}"); do
         }
     ' "${CONTROL_FILE}")
 
-
     if [ -z "${DOMAIN}" ]; then
         echo
         echo "ERROR: Could not read domain_name from:"
         echo "${CONTROL_FILE}"
-
         FAILED=$((FAILED + 1))
         continue
     fi
 
-
     printf -v MONTH2 "%02d" "${MONTH}"
     YM="${YEAR}${MONTH2}"
-
 
     echo
     echo "----------------------------------------------------------------------"
@@ -242,34 +178,20 @@ for TASK_INDEX in $(seq "${START_INDEX}" "${END_INDEX}"); do
     echo "Month        : ${YM}"
     echo "Start        : $(date)"
 
-
-    if conda run --no-capture-output -n nwam \
-        python "${PYTHON_SCRIPT}" \
+    if python "${PYTHON_SCRIPT}" \
         "${CONTROL_FILE}" \
         "${YEAR}" \
         "${MONTH}"
     then
-
         PROCESSED=$((PROCESSED + 1))
-
         echo
         echo "PASS: ${DOMAIN} ${YM}"
-
     else
-
         FAILED=$((FAILED + 1))
-
         echo
         echo "FAIL: ${DOMAIN} ${YM}"
-
     fi
-
 done
-
-
-# ============================================================
-# FINISH
-# ============================================================
 
 echo
 echo "======================================================================"
@@ -285,7 +207,6 @@ echo "End time      : $(date)"
 echo
 echo "No control_active.txt was used or modified."
 echo
-
 
 if [ "${FAILED}" -gt 0 ]; then
     echo "ERROR: ${FAILED} task(s) failed in this chunk."

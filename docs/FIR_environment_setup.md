@@ -103,7 +103,7 @@ source load_nwam_fir.sh
 python 0_tools/check_nwam_fir.py
 ```
 
-Actual preprocessing jobs should replace the smoke-test command with the appropriate workflow stage and must use the correct FIR input/output data roots. Examples: `/project/rrg-mclark/datasets/CAMELS_SPAT_MX/outputs/` for available source basin exports and `/project/rrg-mclark/datasets/CAMELS_SPAT_MX_Model/` for generated model domains, subject to access permissions and the repository's control files.
+Actual preprocessing jobs should replace the smoke-test command with the appropriate workflow stage. Current MX source exports are under `/project/6079554/share/camels-mx/basin_delineation/`; generated model domains are under `/project/6079554/share/camels-mx/nawm_cwarhm_output/`. Each basin's control file defines its actual input and output locations.
 
 ## What is and is not stored in Git
 

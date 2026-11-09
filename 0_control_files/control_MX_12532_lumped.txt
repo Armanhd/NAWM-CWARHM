@@ -255,3 +255,37 @@ settings_mizu_make_outlet           | n/a
 # =====================================================================
 
 visualization_folder        | default
+
+# =====================================================================
+# STEP 11 - Additional spatial attributes
+# =====================================================================
+attribute_processing_mode                                            | lumped
+attribute_include_worldclim                                          | yes
+attribute_resume_existing                                            | yes
+attribute_output_path                                                | default
+attribute_lumped_output_path                                         | default
+attribute_metadata_file                                              | default
+attribute_terrain_raw_dir                                            | /project/rrg-alpie/data/geospatial-data/MERIT-Hydro/elv
+attribute_terrain_source                                             | default
+attribute_soilgrids_raw_dir                                          | /home/armanhad/projects/rrg-mclark/datasets/NorthAmerica_geospatial/soilgrids
+attribute_soilgrids_source                                           | /home/armanhad/projects/rrg-mclark/datasets/NorthAmerica_geospatial/soilgrids/raw
+attribute_pelletier_raw_dir                                          | /home/armanhad/projects/rrg-mclark/datasets/NorthAmerica_geospatial/pelletier/raw
+attribute_pelletier_layer_soil_thickness                             | /home/armanhad/projects/rrg-mclark/datasets/NorthAmerica_geospatial/pelletier/raw/upland_hill-slope_soil_thickness.tif
+attribute_pelletier_layer_regolith_thickness                         | /home/armanhad/projects/rrg-mclark/datasets/NorthAmerica_geospatial/pelletier/raw/upland_hill-slope_regolith_thickness.tif
+attribute_pelletier_layer_sedimentary_deposit_thickness              | /home/armanhad/projects/rrg-mclark/datasets/NorthAmerica_geospatial/pelletier/raw/upland_valley-bottom_and_lowland_sedimentary_deposit_thickness.tif
+attribute_pelletier_layer_average_soil_and_sedimentary_deposit_thickness | /home/armanhad/projects/rrg-mclark/datasets/NorthAmerica_geospatial/pelletier/raw/average_soil_and_sedimentary-deposit_thickness.tif
+attribute_pelletier_source                                           | default
+attribute_glhymps_raw_dir                                            | /home/armanhad/projects/rrg-mclark/datasets/NorthAmerica_geospatial/glhymps
+attribute_glhymps_source                                             | /home/armanhad/projects/rrg-mclark/datasets/NorthAmerica_geospatial/glhymps/raw/glhymps.shp
+attribute_hydrolakes_raw_dir                                         | /home/armanhad/projects/rrg-mclark/datasets/NorthAmerica_geospatial/hydrolakes
+attribute_hydrolakes_source                                          | /home/armanhad/projects/rrg-mclark/datasets/NorthAmerica_geospatial/hydrolakes/raw/HydroLAKES_polys_v10_NorthAmerica.shp
+attribute_forest_height_raw_dir                                      | /home/armanhad/projects/rrg-mclark/datasets/NorthAmerica_geospatial/forest_height
+attribute_forest_height_source                                       | /home/armanhad/projects/rrg-mclark/datasets/NorthAmerica_geospatial/forest_height/raw
+attribute_glclu2019_raw_dir                                          | /home/armanhad/projects/rrg-mclark/datasets/NorthAmerica_geospatial/glclu2019
+attribute_glclu2019_source                                           | /home/armanhad/projects/rrg-mclark/datasets/NorthAmerica_geospatial/glclu2019/raw/glclu2019_map.tif
+attribute_lgrip30_raw_dir                                            | /home/armanhad/projects/rrg-mclark/datasets/NorthAmerica_geospatial/lgrip30/raw
+attribute_lgrip30_source                                             | /home/armanhad/projects/rrg-mclark/datasets/NorthAmerica_geospatial/lgrip30/raw/lgrip30_agriculture.tif
+attribute_lai_raw_dir                                                | /home/armanhad/projects/rrg-mclark/datasets/NorthAmerica_geospatial/lai/monthly_average_2013_2023/monthly_lai_with_water_mask
+attribute_lai_source                                                 | /home/armanhad/projects/rrg-mclark/datasets/NorthAmerica_geospatial/lai/monthly_average_2013_2023/monthly_lai_with_water_mask
+attribute_worldclim_raw_dir                                          | /home/armanhad/projects/rrg-mclark/datasets/NorthAmerica_geospatial/worldclim
+attribute_worldclim_source                                           | /home/armanhad/projects/rrg-mclark/datasets/NorthAmerica_geospatial/worldclim

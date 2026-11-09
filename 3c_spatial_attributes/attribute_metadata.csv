@@ -1,0 +1,467 @@
+module,attribute,category,source,unit
+terrain,elev_min,Topography,Terrain / MERIT Hydro,m
+terrain,elev_max,Topography,Terrain / MERIT Hydro,m
+terrain,elev_mean,Topography,Terrain / MERIT Hydro,m
+terrain,elev_std,Topography,Terrain / MERIT Hydro,m
+terrain,slope_min,Topography,Terrain / MERIT Hydro,degrees
+terrain,slope_max,Topography,Terrain / MERIT Hydro,degrees
+terrain,slope_mean,Topography,Terrain / MERIT Hydro,degrees
+terrain,slope_std,Topography,Terrain / MERIT Hydro,degrees
+terrain,aspect_min,Topography,Terrain / MERIT Hydro,degrees
+terrain,aspect_max,Topography,Terrain / MERIT Hydro,degrees
+terrain,aspect_mean,Topography,Terrain / MERIT Hydro,degrees
+terrain,aspect_std,Topography,Terrain / MERIT Hydro,degrees
+soilgrids,bdod_0-5cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,bdod_0-5cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,bdod_0-5cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,bdod_0-5cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,bdod_0-5cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,bdod_0-5cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,bdod_0-5cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,bdod_0-5cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,bdod_5-15cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,bdod_5-15cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,bdod_5-15cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,bdod_5-15cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,bdod_5-15cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,bdod_5-15cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,bdod_5-15cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,bdod_5-15cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,bdod_15-30cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,bdod_15-30cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,bdod_15-30cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,bdod_15-30cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,bdod_15-30cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,bdod_15-30cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,bdod_15-30cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,bdod_15-30cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,bdod_30-60cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,bdod_30-60cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,bdod_30-60cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,bdod_30-60cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,bdod_30-60cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,bdod_30-60cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,bdod_30-60cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,bdod_30-60cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,bdod_60-100cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,bdod_60-100cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,bdod_60-100cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,bdod_60-100cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,bdod_60-100cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,bdod_60-100cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,bdod_60-100cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,bdod_60-100cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,bdod_100-200cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,bdod_100-200cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,bdod_100-200cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,bdod_100-200cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,bdod_100-200cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,bdod_100-200cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,bdod_100-200cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,bdod_100-200cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_0-5cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_0-5cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_0-5cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_0-5cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_0-5cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_0-5cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_0-5cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_0-5cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_5-15cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_5-15cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_5-15cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_5-15cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_5-15cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_5-15cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_5-15cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_5-15cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_15-30cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_15-30cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_15-30cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_15-30cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_15-30cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_15-30cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_15-30cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_15-30cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_30-60cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_30-60cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_30-60cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_30-60cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_30-60cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_30-60cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_30-60cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_30-60cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_60-100cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_60-100cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_60-100cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_60-100cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_60-100cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_60-100cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_60-100cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_60-100cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_100-200cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_100-200cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_100-200cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_100-200cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_100-200cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_100-200cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_100-200cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,cfvo_100-200cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,clay_0-5cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,clay_0-5cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,clay_0-5cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,clay_0-5cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,clay_0-5cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,clay_0-5cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,clay_0-5cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,clay_0-5cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,clay_5-15cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,clay_5-15cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,clay_5-15cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,clay_5-15cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,clay_5-15cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,clay_5-15cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,clay_5-15cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,clay_5-15cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,clay_15-30cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,clay_15-30cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,clay_15-30cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,clay_15-30cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,clay_15-30cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,clay_15-30cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,clay_15-30cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,clay_15-30cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,clay_30-60cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,clay_30-60cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,clay_30-60cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,clay_30-60cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,clay_30-60cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,clay_30-60cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,clay_30-60cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,clay_30-60cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,clay_60-100cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,clay_60-100cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,clay_60-100cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,clay_60-100cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,clay_60-100cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,clay_60-100cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,clay_60-100cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,clay_60-100cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,clay_100-200cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,clay_100-200cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,clay_100-200cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,clay_100-200cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,clay_100-200cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,clay_100-200cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,clay_100-200cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,clay_100-200cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,sand_0-5cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,sand_0-5cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,sand_0-5cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,sand_0-5cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,sand_0-5cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,sand_0-5cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,sand_0-5cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,sand_0-5cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,sand_5-15cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,sand_5-15cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,sand_5-15cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,sand_5-15cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,sand_5-15cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,sand_5-15cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,sand_5-15cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,sand_5-15cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,sand_15-30cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,sand_15-30cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,sand_15-30cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,sand_15-30cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,sand_15-30cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,sand_15-30cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,sand_15-30cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,sand_15-30cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,sand_30-60cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,sand_30-60cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,sand_30-60cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,sand_30-60cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,sand_30-60cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,sand_30-60cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,sand_30-60cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,sand_30-60cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,sand_60-100cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,sand_60-100cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,sand_60-100cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,sand_60-100cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,sand_60-100cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,sand_60-100cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,sand_60-100cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,sand_60-100cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,sand_100-200cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,sand_100-200cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,sand_100-200cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,sand_100-200cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,sand_100-200cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,sand_100-200cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,sand_100-200cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,sand_100-200cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,silt_0-5cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,silt_0-5cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,silt_0-5cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,silt_0-5cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,silt_0-5cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,silt_0-5cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,silt_0-5cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,silt_0-5cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,silt_5-15cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,silt_5-15cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,silt_5-15cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,silt_5-15cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,silt_5-15cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,silt_5-15cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,silt_5-15cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,silt_5-15cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,silt_15-30cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,silt_15-30cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,silt_15-30cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,silt_15-30cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,silt_15-30cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,silt_15-30cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,silt_15-30cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,silt_15-30cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,silt_30-60cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,silt_30-60cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,silt_30-60cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,silt_30-60cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,silt_30-60cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,silt_30-60cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,silt_30-60cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,silt_30-60cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,silt_60-100cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,silt_60-100cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,silt_60-100cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,silt_60-100cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,silt_60-100cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,silt_60-100cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,silt_60-100cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,silt_60-100cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,silt_100-200cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,silt_100-200cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,silt_100-200cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,silt_100-200cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,silt_100-200cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,silt_100-200cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,silt_100-200cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,silt_100-200cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,soc_0-5cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,soc_0-5cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,soc_0-5cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,soc_0-5cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,soc_0-5cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,soc_0-5cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,soc_0-5cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,soc_0-5cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,soc_5-15cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,soc_5-15cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,soc_5-15cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,soc_5-15cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,soc_5-15cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,soc_5-15cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,soc_5-15cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,soc_5-15cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,soc_15-30cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,soc_15-30cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,soc_15-30cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,soc_15-30cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,soc_15-30cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,soc_15-30cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,soc_15-30cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,soc_15-30cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,soc_30-60cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,soc_30-60cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,soc_30-60cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,soc_30-60cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,soc_30-60cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,soc_30-60cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,soc_30-60cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,soc_30-60cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,soc_60-100cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,soc_60-100cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,soc_60-100cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,soc_60-100cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,soc_60-100cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,soc_60-100cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,soc_60-100cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,soc_60-100cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,soc_100-200cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,soc_100-200cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,soc_100-200cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,soc_100-200cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,soc_100-200cm_uncertainty_min,Soil,SoilGrids,VERIFY
+soilgrids,soc_100-200cm_uncertainty_mean,Soil,SoilGrids,VERIFY
+soilgrids,soc_100-200cm_uncertainty_max,Soil,SoilGrids,VERIFY
+soilgrids,soc_100-200cm_uncertainty_std,Soil,SoilGrids,VERIFY
+soilgrids,porosity_0-5cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,porosity_0-5cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,porosity_0-5cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,porosity_0-5cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_0-5cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_0-5cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_0-5cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_0-5cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_0-5cm_mean_harmonic_mean,Soil,SoilGrids,VERIFY
+soilgrids,porosity_5-15cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,porosity_5-15cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,porosity_5-15cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,porosity_5-15cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_5-15cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_5-15cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_5-15cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_5-15cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_5-15cm_mean_harmonic_mean,Soil,SoilGrids,VERIFY
+soilgrids,porosity_15-30cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,porosity_15-30cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,porosity_15-30cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,porosity_15-30cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_15-30cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_15-30cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_15-30cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_15-30cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_15-30cm_mean_harmonic_mean,Soil,SoilGrids,VERIFY
+soilgrids,porosity_30-60cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,porosity_30-60cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,porosity_30-60cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,porosity_30-60cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_30-60cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_30-60cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_30-60cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_30-60cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_30-60cm_mean_harmonic_mean,Soil,SoilGrids,VERIFY
+soilgrids,porosity_60-100cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,porosity_60-100cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,porosity_60-100cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,porosity_60-100cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_60-100cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_60-100cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_60-100cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_60-100cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_60-100cm_mean_harmonic_mean,Soil,SoilGrids,VERIFY
+soilgrids,porosity_100-200cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,porosity_100-200cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,porosity_100-200cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,porosity_100-200cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_100-200cm_mean_min,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_100-200cm_mean_mean,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_100-200cm_mean_max,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_100-200cm_mean_std,Soil,SoilGrids,VERIFY
+soilgrids,conductivity_100-200cm_mean_harmonic_mean,Soil,SoilGrids,VERIFY
+pelletier,regolith_thickness_min,Soil,Pelletier,m
+pelletier,regolith_thickness_mean,Soil,Pelletier,m
+pelletier,regolith_thickness_max,Soil,Pelletier,m
+pelletier,regolith_thickness_std,Soil,Pelletier,m
+pelletier,soil_thickness_min,Soil,Pelletier,m
+pelletier,soil_thickness_mean,Soil,Pelletier,m
+pelletier,soil_thickness_max,Soil,Pelletier,m
+pelletier,soil_thickness_std,Soil,Pelletier,m
+pelletier,sedimentary_thickness_min,Soil,Pelletier,m
+pelletier,sedimentary_thickness_mean,Soil,Pelletier,m
+pelletier,sedimentary_thickness_max,Soil,Pelletier,m
+pelletier,sedimentary_thickness_std,Soil,Pelletier,m
+pelletier,average_thickness_min,Soil,Pelletier,m
+pelletier,average_thickness_mean,Soil,Pelletier,m
+pelletier,average_thickness_max,Soil,Pelletier,m
+pelletier,average_thickness_std,Soil,Pelletier,m
+glhymps,porosity_min,Geology,GLHYMPS,-
+glhymps,porosity_mean,Geology,GLHYMPS,-
+glhymps,porosity_max,Geology,GLHYMPS,-
+glhymps,porosity_std,Geology,GLHYMPS,-
+glhymps,log_permeability_min,Geology,GLHYMPS,log10(m2) (verify source convention)
+glhymps,log_permeability_mean,Geology,GLHYMPS,log10(m2) (verify source convention)
+glhymps,log_permeability_max,Geology,GLHYMPS,log10(m2) (verify source convention)
+glhymps,log_permeability_std,Geology,GLHYMPS,log10(m2) (verify source convention)
+hydrolakes,open_water_number,Open water,HydroLAKES,count
+hydrolakes,known_reservoirs,Open water,HydroLAKES,count
+hydrolakes,open_water_area_min,Open water,HydroLAKES,km2
+hydrolakes,open_water_area_mean,Open water,HydroLAKES,km2
+hydrolakes,open_water_area_max,Open water,HydroLAKES,km2
+hydrolakes,open_water_area_std,Open water,HydroLAKES,km2
+hydrolakes,open_water_area_total,Open water,HydroLAKES,km2
+hydrolakes,open_water_volume_min,Open water,HydroLAKES,million m3
+hydrolakes,open_water_volume_mean,Open water,HydroLAKES,million m3
+hydrolakes,open_water_volume_max,Open water,HydroLAKES,million m3
+hydrolakes,open_water_volume_std,Open water,HydroLAKES,million m3
+hydrolakes,open_water_volume_total,Open water,HydroLAKES,million m3
+hydrolakes,reservoir_area_min,Open water,HydroLAKES,km2
+hydrolakes,reservoir_area_mean,Open water,HydroLAKES,km2
+hydrolakes,reservoir_area_max,Open water,HydroLAKES,km2
+hydrolakes,reservoir_area_std,Open water,HydroLAKES,km2
+hydrolakes,reservoir_area_total,Open water,HydroLAKES,km2
+hydrolakes,reservoir_volume_min,Open water,HydroLAKES,million m3
+hydrolakes,reservoir_volume_mean,Open water,HydroLAKES,million m3
+hydrolakes,reservoir_volume_max,Open water,HydroLAKES,million m3
+hydrolakes,reservoir_volume_std,Open water,HydroLAKES,million m3
+hydrolakes,reservoir_volume_total,Open water,HydroLAKES,million m3
+forest_height,forest_height_2000_min,Land cover,Forest height,m
+forest_height,forest_height_2000_mean,Land cover,Forest height,m
+forest_height,forest_height_2000_max,Land cover,Forest height,m
+forest_height,forest_height_2000_std,Land cover,Forest height,m
+forest_height,forest_height_2020_min,Land cover,Forest height,m
+forest_height,forest_height_2020_mean,Land cover,Forest height,m
+forest_height,forest_height_2020_max,Land cover,Forest height,m
+forest_height,forest_height_2020_std,Land cover,Forest height,m
+glclu2019,lc1_true_desert_fraction,Land cover,GLCLU2019,fraction
+glclu2019,lc1_semi_arid_fraction,Land cover,GLCLU2019,fraction
+glclu2019,lc1_dense_short_vegetation_fraction,Land cover,GLCLU2019,fraction
+glclu2019,lc1_open_tree_cover_fraction,Land cover,GLCLU2019,fraction
+glclu2019,lc1_dense_tree_cover_fraction,Land cover,GLCLU2019,fraction
+glclu2019,lc1_tree_cover_gain_fraction,Land cover,GLCLU2019,fraction
+glclu2019,lc1_tree_cover_loss_fraction,Land cover,GLCLU2019,fraction
+glclu2019,lc1_salt_pan_fraction,Land cover,GLCLU2019,fraction
+glclu2019,lc1_wetland_sparse_vegetation_fraction,Land cover,GLCLU2019,fraction
+glclu2019,lc1_wetland_dense_short_vegetation_fraction,Land cover,GLCLU2019,fraction
+glclu2019,lc1_wetland_open_tree_cover_fraction,Land cover,GLCLU2019,fraction
+glclu2019,lc1_wetland_dense_tree_cover_fraction,Land cover,GLCLU2019,fraction
+glclu2019,lc1_wetland_tree_cover_gain_fraction,Land cover,GLCLU2019,fraction
+glclu2019,lc1_wetland_tree_cover_loss_fraction,Land cover,GLCLU2019,fraction
+glclu2019,lc1_ice_fraction,Land cover,GLCLU2019,fraction
+glclu2019,lc1_water_fraction,Land cover,GLCLU2019,fraction
+glclu2019,lc1_cropland_fraction,Land cover,GLCLU2019,fraction
+glclu2019,lc1_built_up_fraction,Land cover,GLCLU2019,fraction
+glclu2019,lc1_ocean_fraction,Land cover,GLCLU2019,fraction
+glclu2019,lc1_no_data_fraction,Land cover,GLCLU2019,fraction
+lgrip30,lc3_water_fraction,Land cover,LGRIP30,fraction
+lgrip30,lc3_non_cropland_fraction,Land cover,LGRIP30,fraction
+lgrip30,lc3_irrigated_cropland_fraction,Land cover,LGRIP30,fraction
+lgrip30,lc3_rainfed_cropland_fraction,Land cover,LGRIP30,fraction
+lai,lai_mean_month_01,Land cover,MODIS LAI (2013-2023),m2/m2
+lai,lai_std_month_01,Land cover,MODIS LAI (2013-2023),m2/m2
+lai,lai_mean_month_02,Land cover,MODIS LAI (2013-2023),m2/m2
+lai,lai_std_month_02,Land cover,MODIS LAI (2013-2023),m2/m2
+lai,lai_mean_month_03,Land cover,MODIS LAI (2013-2023),m2/m2
+lai,lai_std_month_03,Land cover,MODIS LAI (2013-2023),m2/m2
+lai,lai_mean_month_04,Land cover,MODIS LAI (2013-2023),m2/m2
+lai,lai_std_month_04,Land cover,MODIS LAI (2013-2023),m2/m2
+lai,lai_mean_month_05,Land cover,MODIS LAI (2013-2023),m2/m2
+lai,lai_std_month_05,Land cover,MODIS LAI (2013-2023),m2/m2
+lai,lai_mean_month_06,Land cover,MODIS LAI (2013-2023),m2/m2
+lai,lai_std_month_06,Land cover,MODIS LAI (2013-2023),m2/m2
+lai,lai_mean_month_07,Land cover,MODIS LAI (2013-2023),m2/m2
+lai,lai_std_month_07,Land cover,MODIS LAI (2013-2023),m2/m2
+lai,lai_mean_month_08,Land cover,MODIS LAI (2013-2023),m2/m2
+lai,lai_std_month_08,Land cover,MODIS LAI (2013-2023),m2/m2
+lai,lai_mean_month_09,Land cover,MODIS LAI (2013-2023),m2/m2
+lai,lai_std_month_09,Land cover,MODIS LAI (2013-2023),m2/m2
+lai,lai_mean_month_10,Land cover,MODIS LAI (2013-2023),m2/m2
+lai,lai_std_month_10,Land cover,MODIS LAI (2013-2023),m2/m2
+lai,lai_mean_month_11,Land cover,MODIS LAI (2013-2023),m2/m2
+lai,lai_std_month_11,Land cover,MODIS LAI (2013-2023),m2/m2
+lai,lai_mean_month_12,Land cover,MODIS LAI (2013-2023),m2/m2
+lai,lai_std_month_12,Land cover,MODIS LAI (2013-2023),m2/m2
+worldclim,mean_annual_precipitation,Climate,WorldClim,mm/year
+worldclim,mean_annual_temperature,Climate,WorldClim,deg C
+worldclim,mean_annual_pet,Climate,WorldClim,mm/year
+worldclim,annual_aridity_index,Climate,WorldClim,-
+worldclim,annual_snow_fraction,Climate,WorldClim,-
+worldclim,precipitation_seasonality,Climate,WorldClim,-
+worldclim,temperature_annual_range,Climate,WorldClim,deg C
+worldclim,climate_index_im,Climate,WorldClim,-
+worldclim,climate_index_imr,Climate,WorldClim,-
+worldclim,climate_index_fs,Climate,WorldClim,-
