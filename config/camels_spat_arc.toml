@@ -1,0 +1,32 @@
+# NAWM-CWARHM to SUMMA: CAMELS-SPAT lumped calibration
+# ARC configuration
+#
+# Default policy reproduces the CENTURY-style conversion.
+
+[paths]
+source_root = "/work/comphyd_lab/users/arman.haddadchi/NWAM/NWAM_Data/CAMELS_SPAT_basins_prcp"
+output_root = "/work/comphyd_lab/users/arman.haddadchi/NWAM/NWAM_Data/summa_calibration/camels_spat_calibration"
+
+reference_basin = "/work/comphyd_lab/users/arman.haddadchi/NWAM/NAWM_CWARHM_to_SUMMA_transfer/reference/century_CAN_01AM001"
+
+[selection]
+scales = ["headwater", "meso_scale", "macro_scale"]
+model_type = "lumped"
+duplicate_basin_policy = "error"
+
+[reference_policy]
+mode = "century_exact"
+
+contour_length = "copy_reference"
+cold_state = "copy_reference_except_hru_ids"
+soil_layers = 3
+soil_layer_depths_m = [0.2, 0.3, 0.5]
+
+mizuroute_parameters = "copy_reference"
+trial_parameters = "reference_structure_with_basin_hru_ids"
+
+[processing]
+copy_forcing = true
+copy_observations = true
+overwrite_existing = false
+validate_before_finalize = true

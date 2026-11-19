@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ipynb_checkpoints/
+
+# macOS and VS Code
+.DS_Store
+._*
+.vscode/
+.idea/
+
+# Python environments
+.venv/
+venv/
+python_packages/
+
+# Generated NetCDF files
+*.nc
+*.nc4
+*.cdf
+
+# Generated reports and logs
+reports/
+slurm_logs/
+logs/
+*.log
+slurm-*.out
+slurm-*.err
+
+# Temporary and intermediate files
+.conversion_staging/
+*.tmp
+*.bak
+*.part
+
+# Reference datasets and experimental copies
+reference/
+test_distributed/
+
+# Model outputs and observations
+domain/
+observations/
+simulations/
+summa_forcing/
+summa_state/
+_audit/
+work/
+
+# Local environment files and credentials
+.env
+.env.*
+*.pem
+*.key
+
+# Historical development scripts
+old_scripts/
+
+# Local test basin directories
+/CAN_01AM001/
+/CAN_02YQ001/
+/USA_01550000/
