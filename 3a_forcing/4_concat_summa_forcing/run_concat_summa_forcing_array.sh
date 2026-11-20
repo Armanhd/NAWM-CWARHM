@@ -4,7 +4,7 @@
 #SBATCH --time=02:00:00
 #SBATCH --mem=4G
 #SBATCH --cpus-per-task=1
-#SBATCH --exclude=fc1
+#    SBATCH --exclude=fc1
 #SBATCH --output=slurm_logs/summa_concat_%A_%a.out
 #SBATCH --error=slurm_logs/summa_concat_%A_%a.err
 
@@ -15,8 +15,8 @@ set -eo pipefail
 # PATHS
 # ============================================================
 
-SCRIPT_DIR="/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin/3a_forcing/4_concat_summa_forcing"
-
+#SCRIPT_DIR="/project/6102189/dorolin/Github/NAWM-CWARHM-MX/3a_forcing/4_concat_summa_forcing"
+SCRIPT_DIR="/project/6102189/dorolin/Github/NAWM-CWARHM-MX/3a_forcing/4_concat_summa_forcing"
 
 # ============================================================
 # INPUT BASIN TASK FILE
@@ -127,9 +127,8 @@ echo "============================================================"
 # ENVIRONMENT
 # ============================================================
 
-module load conda/base
+source "/project/6102189/dorolin/Github/NAWM-CWARHM-MX/load_nwam_fir.sh"
 
-conda activate nwam
 
 set -u
 

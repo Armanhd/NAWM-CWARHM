@@ -65,7 +65,8 @@ set -euo pipefail
 # PATHS
 # ============================================================
 
-CWARHM="/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin"
+#CWARHM="/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin"
+CWARHM="/project/6102189/dorolin/Github/NAWM-CWARHM-MX/"
 
 PREP_DIR="${CWARHM}/00_prepare_domain_shapefiles"
 
@@ -249,10 +250,13 @@ done
 # ENVIRONMENT / LOG DIRECTORY
 # ============================================================
 
-module load conda/base
+#module load conda/base
+#mkdir -p "${PREP_DIR}/slurm_logs"
 
+source /project/6102189/dorolin/Github/NAWM-CWARHM-MX/load_nwam_fir.sh
+which python
+python --version
 
-mkdir -p "${PREP_DIR}/slurm_logs"
 
 
 # ============================================================
@@ -328,8 +332,8 @@ echo
 cd "${FORCING_PREP_DIR}"
 
 
-conda run --no-capture-output -n nwam \
-    python "${GRID_SCRIPT}" \
+#conda run --no-capture-output -n nwam \
+python "${GRID_SCRIPT}" \
     "${CONTROL_FILE}"
 
 

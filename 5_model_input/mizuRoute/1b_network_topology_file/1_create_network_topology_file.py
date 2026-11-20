@@ -463,7 +463,7 @@ river_length = read_from_control(
 
 river_basin_name = read_from_control(
     CONTROL_FILE,
-    "river_basin_shp_name"
+    "catchment_shp_name"
 )
 
 

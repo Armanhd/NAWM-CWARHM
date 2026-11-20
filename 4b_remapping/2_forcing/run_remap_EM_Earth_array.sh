@@ -49,7 +49,8 @@ set -euo pipefail
 # PATHS
 # ============================================================
 
-CWARHM="/home/armanhad/projects/rrg-mclark/armanhad/NAWM-CWARHM-MX"
+#CWARHM="/home/armanhad/projects/rrg-mclark/armanhad/NAWM-CWARHM-MX"
+CWARHM="/project/rrg-alpie/dorolin/Github/NAWM-CWARHM-MX/"
 
 SCRIPT_DIR="${CWARHM}/4b_remapping/2_forcing"
 

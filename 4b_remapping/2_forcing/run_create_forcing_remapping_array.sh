@@ -8,7 +8,8 @@
 
 set -euo pipefail
 
-CWARHM="/home/armanhad/projects/rrg-mclark/armanhad/NAWM-CWARHM-MX"
+#CWARHM="/home/armanhad/projects/rrg-mclark/armanhad/NAWM-CWARHM-MX"
+CWARHM="/project/rrg-alpie/dorolin/Github/NAWM-CWARHM-MX/"
 SCRIPT_DIR="${CWARHM}/4b_remapping/2_forcing"
 
 ERA5_SCRIPT="${SCRIPT_DIR}/1a_remap_ERA5.py"

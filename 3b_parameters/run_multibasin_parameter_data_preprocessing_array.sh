@@ -75,7 +75,9 @@ set -euo pipefail
 # CWARHM ROOT
 # ============================================================
 
-CWARHM="/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin"
+#CWARHM="/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin"
+CWARHM="/project/6102189/dorolin/Github/NAWM-CWARHM-MX"
+
 
 PARAM_DIR="${CWARHM}/3b_parameters"
 
@@ -169,7 +171,7 @@ LINE_NUMBER=$((SLURM_ARRAY_TASK_ID + 1))
 
 CONTROL_FILE=$(
     sed -n "${LINE_NUMBER}p" "${TASK_FILE}" \
-    | xargs
+        | sed "s/^[[:space:]]*//;s/[[:space:]]*$//"
 )
 
 
@@ -207,7 +209,7 @@ read_control() {
         grep -m 1 "^[[:space:]]*${setting}[[:space:]]*|" "${CONTROL_FILE}" \
         | cut -d'|' -f2- \
         | cut -d'#' -f1 \
-        | xargs
+        | sed "s/^[[:space:]]*//;s/[[:space:]]*$//"
     )
 
     if [ -z "${value}" ]; then
@@ -273,18 +275,31 @@ done
 # ENVIRONMENT
 # ============================================================
 
-module load conda/base
+#module load conda/base
+
+# Use the packed Python/GDAL environment on node-local storage.
+ENV_TAR=/project/rrg-alpie/dorolin/Github/NAWM-CWARHM-MX/nwam-fir.tar.gz
+tar -xzf "$ENV_TAR" -C "$SLURM_TMPDIR"
+export VIRTUAL_ENV="$SLURM_TMPDIR/nwam-fir"
+export PATH="$VIRTUAL_ENV/bin:$PATH"
+export TMPDIR="$SLURM_TMPDIR"
+unset GDAL_DATA PROJ_DATA PROJ_LIB
+
+python -c 'import sys, os, rasterio; print(sys.executable, sys.prefix); assert sys.prefix == os.environ["VIRTUAL_ENV"]'
+gdalinfo --version
+gdalinfo --formats | grep -i HDF4
+
 
 
 # Activate nwam so all shell scripts use the GDAL installation
 # from the nwam environment. This is particularly important
 # for MODIS HDF4 support.
 
-CONDA_BASE=$(conda info --base)
+#CONDA_BASE=$(conda info --base)
 
-source "${CONDA_BASE}/etc/profile.d/conda.sh"
+#source "${CONDA_BASE}/etc/profile.d/conda.sh"
 
-conda activate nwam
+#conda activate nwam
 
 
 # ============================================================

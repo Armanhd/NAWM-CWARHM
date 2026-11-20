@@ -319,7 +319,7 @@ def get_month_files(year, month):
         era5_dir
         / (
             f"{era5_case}_remapped_"
-            f"ERA5_SUMMA_{ym}.nc"
+            f"{ym[:4]}-{ym[4:]}-01-00-00-00.nc"
         )
     )
 
@@ -328,7 +328,7 @@ def get_month_files(year, month):
         emearth_dir
         / (
             f"{emearth_case}_remapped_"
-            f"EM_Earth_SUMMA_{ym}.nc"
+            f"{ym[:4]}-{ym[4:]}-01-00-00-00.nc"
         )
     )
 
