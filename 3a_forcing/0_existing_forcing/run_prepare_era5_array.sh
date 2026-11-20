@@ -46,7 +46,8 @@ set -euo pipefail
 # PATHS
 # ============================================================
 
-CWARHM="/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin"
+#CWARHM="/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin"
+CWARHM="/project/rrg-alpie/dorolin/Github/NAWM-CWARHM-MX/"
 
 WORKDIR="${CWARHM}/3a_forcing/0_existing_forcing"
 
@@ -165,9 +166,11 @@ TASK_COUNT=$((END_INDEX - START_INDEX + 1))
 # ENVIRONMENT
 # ============================================================
 
-module load conda/base
-
-cd "${WORKDIR}"
+#module load conda/base
+#cd "${WORKDIR}"
+source /project/6102189/dorolin/Github/NAWM-CWARHM-MX/load_nwam_fir.sh
+which python 
+python --version
 
 
 # ============================================================
@@ -342,7 +345,7 @@ for TASK_INDEX in $(seq "${START_INDEX}" "${END_INDEX}"); do
     # RUN EXISTING PYTHON WORKER
     # --------------------------------------------------------
 
-    if conda run --no-capture-output -n nwam \
+    if #conda run --no-capture-output -n nwam \
         python "${PYTHON_SCRIPT}" \
         "${CONTROL_FILE}" \
         "${YEAR}" \

@@ -1,7 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=combine_forcing
 #SBATCH --time=08:00:00
-#SBATCH --mem=4G
+#SBATCH --mem=16G
+# SBATCH --mem=4G
 #SBATCH --cpus-per-task=1
 #SBATCH --output=slurm_logs/combine_forcing_%A_%a.out
 #SBATCH --error=slurm_logs/combine_forcing_%A_%a.err
@@ -66,12 +67,23 @@ set -euo pipefail
 # PATHS
 # ============================================================
 
-CWARHM="/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin"
+#CWARHM="/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin"
+CWARHM="/project/6102189/dorolin/Github/NAWM-CWARHM-MX/"
 
 SCRIPT_DIR="${CWARHM}/4b_remapping/2_forcing"
 
 PYTHON_SCRIPT="${SCRIPT_DIR}/3_combine_forcing_for_SUMMA.py"
 
+# Use a local copy to reduce small-file reads from shared storage.
+ENV_TAR=/project/rrg-alpie/dorolin/Github/NAWM-CWARHM-MX/nwam-fir.tar.gz
+
+source /project/6102189/dorolin/Github/NAWM-CWARHM-MX/load_nwam_fir.sh
+tar -xzf "$ENV_TAR" -C "$SLURM_TMPDIR"
+export PATH="$SLURM_TMPDIR/nwam-fir/bin:$PATH"
+export TMPDIR="$SLURM_TMPDIR"
+
+python -c "import sys, xarray, netCDF4, easymore; print(sys.executable, sys.prefix)"
+python -c 'import sys, os; assert sys.prefix == os.environ["SLURM_TMPDIR"] + "/nwam-fir", sys.prefix'
 
 # ============================================================
 # ARGUMENTS
@@ -179,10 +191,12 @@ TASK_COUNT=$((END_INDEX - START_INDEX + 1))
 # ENVIRONMENT
 # ============================================================
 
-module load conda/base
+#module load conda/base
 
-cd "${SCRIPT_DIR}"
+#cd "${SCRIPT_DIR}"
 
+which python
+python --version
 
 # ============================================================
 # REPORT
@@ -358,7 +372,7 @@ for TASK_INDEX in $(seq "${START_INDEX}" "${END_INDEX}"); do
     # COMBINE ERA5 + EM-EARTH FOR SUMMA
     # --------------------------------------------------------
 
-    if conda run --no-capture-output -n nwam \
+    if
         python "${PYTHON_SCRIPT}" \
         "${CONTROL_FILE}" \
         "${YEAR}" \

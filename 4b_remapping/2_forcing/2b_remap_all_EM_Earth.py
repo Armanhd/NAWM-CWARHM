@@ -214,11 +214,14 @@ output_dir = make_default_path(
 )
 
 
-remap_dir = make_default_path(
-    "shapefiles/catchment_intersection/"
-    "with_forcing/EM_Earth"
-)
+# remap_dir = make_default_path(
+#     "shapefiles/catchment_intersection/"
+#     "with_forcing/EM_Earth"
+# )
 
+remap_dir = make_default_path(
+    "forcing/3_temp_easymore/EM_Earth"
+)
 
 temp_root = make_default_path(
     "forcing/3_temp_easymore/EM_Earth"
@@ -516,6 +519,11 @@ case_name = (
     f"{domain}_EM_Earth"
 )
 
+
+remap_dir = (
+    remap_dir.parents[2]
+    / "shapefiles/catchment_intersection/with_forcing/EM_Earth"
+)
 
 remap_files = sorted(
     remap_dir.glob(

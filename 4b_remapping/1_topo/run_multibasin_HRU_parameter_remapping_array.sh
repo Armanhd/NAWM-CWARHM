@@ -62,7 +62,7 @@ set -euo pipefail
 # PATHS
 # ============================================================
 
-CWARHM="/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin"
+CWARHM="/project/6102189/dorolin/Github/NAWM-CWARHM-MX"
 
 SCRIPT_DIR="${CWARHM}/4b_remapping/1_topo"
 
@@ -123,7 +123,7 @@ LINE_NUMBER=$((SLURM_ARRAY_TASK_ID + 1))
 
 CONTROL_FILE=$(
     sed -n "${LINE_NUMBER}p" "${TASK_FILE}" \
-    | xargs
+    | sed "s/^[[:space:]]*//;s/[[:space:]]*$//"
 )
 
 
@@ -180,7 +180,7 @@ read_control() {
     value="${value%%#*}"
 
     value=$(
-        echo "${value}" | xargs
+        echo "${value}" | sed "s/^[[:space:]]*//;s/[[:space:]]*$//"
     )
 
     if [ -z "${value}" ]; then
@@ -234,7 +234,16 @@ done
 # ENVIRONMENT
 # ============================================================
 
-module load conda/base
+# Use nwam-fir Python on node-local storage. GDAL/PROJ come from Fir.
+ENV_TAR=/project/rrg-alpie/dorolin/Github/NAWM-CWARHM-MX/nwam-fir.tar.gz
+tar -xzf "$ENV_TAR" -C "$SLURM_TMPDIR"
+export VIRTUAL_ENV="$SLURM_TMPDIR/nwam-fir"
+export PATH="$VIRTUAL_ENV/bin:$PATH"
+export TMPDIR="$SLURM_TMPDIR"
+unset GDAL_DATA PROJ_DATA PROJ_LIB
+
+python -c 'import sys, os, numpy, geopandas, rasterio, fiona; print(sys.executable, numpy.__version__); assert sys.prefix == os.environ["VIRTUAL_ENV"]' 
+PROJ_DATA="/cvmfs/soft.computecanada.ca/easybuild/software/2023/x86-64-v4/Compiler/gcccore/proj/9.4.1/share/proj" python -c 'import pyproj; from pyproj import CRS; print("PROJ data:", pyproj.datadir.get_data_dir()); print("CRS:", CRS.from_epsg(4326))'
 
 
 mkdir -p "${SCRIPT_DIR}/slurm_logs"
@@ -353,8 +362,7 @@ echo "----------------------------------------------------------------------"
 echo
 
 
-conda run --no-capture-output -n nwam \
-    python "${ELEVATION_SCRIPT}" \
+    PROJ_DATA="/cvmfs/soft.computecanada.ca/easybuild/software/2023/x86-64-v4/Compiler/gcccore/proj/9.4.1/share/proj" python "${ELEVATION_SCRIPT}" \
     "${CONTROL_FILE}"
 
 
@@ -374,8 +382,7 @@ echo "----------------------------------------------------------------------"
 echo
 
 
-conda run --no-capture-output -n nwam \
-    python "${SOIL_SCRIPT}" \
+    PROJ_DATA="/cvmfs/soft.computecanada.ca/easybuild/software/2023/x86-64-v4/Compiler/gcccore/proj/9.4.1/share/proj" python "${SOIL_SCRIPT}" \
     "${CONTROL_FILE}"
 
 
@@ -395,8 +402,7 @@ echo "----------------------------------------------------------------------"
 echo
 
 
-conda run --no-capture-output -n nwam \
-    python "${LAND_SCRIPT}" \
+    PROJ_DATA="/cvmfs/soft.computecanada.ca/easybuild/software/2023/x86-64-v4/Compiler/gcccore/proj/9.4.1/share/proj" python "${LAND_SCRIPT}" \
     "${CONTROL_FILE}"
 
 
@@ -509,8 +515,7 @@ echo
 # BASIC ATTRIBUTE VERIFICATION
 # ============================================================
 
-conda run --no-capture-output -n nwam \
-python - \
+PROJ_DATA="/cvmfs/soft.computecanada.ca/easybuild/software/2023/x86-64-v4/Compiler/gcccore/proj/9.4.1/share/proj" python - \
 "${DEM_OUTPUT}" \
 "${SOIL_OUTPUT}" \
 "${LAND_OUTPUT}" <<'PY'

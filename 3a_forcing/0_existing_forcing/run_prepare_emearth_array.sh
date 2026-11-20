@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=emearth_prep
-#SBATCH --time=08:00:00
-#SBATCH --mem=4G
+#SBATCH --time=02:00:00
+#SBATCH --mem=64G
 #SBATCH --cpus-per-task=1
 #SBATCH --output=slurm_logs/emearth_prep_%A_%a.out
 #SBATCH --error=slurm_logs/emearth_prep_%A_%a.err
@@ -46,7 +46,8 @@ set -euo pipefail
 # PATHS
 # ============================================================
 
-CWARHM="/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin"
+#CWARHM="/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin"
+CWARHM="/project/rrg-alpie/dorolin/Github/NAWM-CWARHM-MX/"
 
 WORKDIR="${CWARHM}/3a_forcing/0_existing_forcing"
 
@@ -158,10 +159,12 @@ TASK_COUNT=$((END_INDEX - START_INDEX + 1))
 # ENVIRONMENT
 # ============================================================
 
-module load conda/base
+#module load conda/base
+#cd "${WORKDIR}"
 
-cd "${WORKDIR}"
-
+source /project/6102189/dorolin/Github/NAWM-CWARHM-MX/load_nwam_fir.sh
+which python 
+python --version
 
 # ============================================================
 # REPORT
@@ -344,7 +347,7 @@ for TASK_INDEX in $(seq "${START_INDEX}" "${END_INDEX}"); do
     # RUN EXISTING PYTHON WORKER
     # --------------------------------------------------------
 
-    if conda run --no-capture-output -n nwam \
+    if #conda run --no-capture-output -n nwam \
         python "${PYTHON_SCRIPT}" \
         "${CONTROL_FILE}" \
         "${YEAR}" \

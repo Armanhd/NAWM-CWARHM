@@ -54,7 +54,7 @@ set -euo pipefail
 # PATHS
 # ============================================================
 
-CWARHM="/work/comphyd_lab/users/arman.haddadchi/NWAM/CWARHM_multibasin"
+CWARHM="/project/6102189/dorolin/Github/NAWM-CWARHM-MX"
 
 MODEL_INPUT="${CWARHM}/5_model_input"
 
@@ -111,7 +111,7 @@ fi
 LINE_NUMBER=$((SLURM_ARRAY_TASK_ID + 1))
 
 
-CONTROL_FILE=$(sed -n "${LINE_NUMBER}p" "${TASK_FILE}" | xargs)
+CONTROL_FILE=$(sed -n "${LINE_NUMBER}p" "${TASK_FILE}" | sed "s/^[[:space:]]*//;s/[[:space:]]*$//")
 
 
 if [ -z "${CONTROL_FILE}" ]; then
@@ -147,7 +147,7 @@ read_control() {
         grep -m 1 "^${setting}[[:space:]]*|" "${CONTROL_FILE}" \
         | cut -d'|' -f2- \
         | cut -d'#' -f1 \
-        | xargs
+        | sed "s/^[[:space:]]*//;s/[[:space:]]*$//"
     )
 
     if [ -z "${value}" ]; then
@@ -180,9 +180,19 @@ DOMAIN_ROOT="${ROOT_PATH}/domain_${DOMAIN}"
 # ENVIRONMENT
 # ============================================================
 
-module load conda/base
+# Python runs from node-local storage. GDAL/PROJ come from Fir.
+ENV_TAR=/project/rrg-alpie/dorolin/Github/NAWM-CWARHM-MX/nwam-fir.tar.gz
+tar -xzf "$ENV_TAR" -C "$SLURM_TMPDIR"
+export VIRTUAL_ENV="$SLURM_TMPDIR/nwam-fir"
+export PATH="$VIRTUAL_ENV/bin:$PATH"
+export TMPDIR="$SLURM_TMPDIR"
+unset GDAL_DATA PROJ_DATA PROJ_LIB
 
-PYTHON=$(conda run -n nwam which python)
+PYTHON="$VIRTUAL_ENV/bin/python"
+PROJ94=/cvmfs/soft.computecanada.ca/easybuild/software/2023/x86-64-v4/Compiler/gcccore/proj/9.4.1/share/proj
+
+test -s "$PROJ94/proj.db"
+PROJ_DATA="$PROJ94" "$PYTHON" -c 'from pyproj import CRS; print("EPSG:", CRS.from_epsg(4326).to_epsg())' 
 
 
 if [ ! -x "${PYTHON}" ]; then
@@ -240,7 +250,7 @@ run_python_step() {
 
     fi
 
-    "${PYTHON}" \
+    PROJ_DATA="$PROJ94" "${PYTHON}" \
         "${script}" \
         "${CONTROL_FILE}"
 
@@ -569,7 +579,7 @@ done
 # NETCDF QA
 # ============================================================
 
-"${PYTHON}" - \
+PROJ_DATA="$PROJ94" "${PYTHON}" - \
     "${SUMMA_SETTINGS}/${SUMMA_COLDSTATE}" \
     "${SUMMA_SETTINGS}/${SUMMA_TRIALPARAMS}" \
     "${SUMMA_SETTINGS}/${SUMMA_ATTRIBUTES}" \

@@ -219,7 +219,7 @@ output_file = (
 
 source_files = sorted(
     soil_raw_path.glob(
-        "*.tif"
+        "usda_mode_soilclass_250m_ll.tif"
     )
 )
 
